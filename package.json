@@ -33,7 +33,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ersintarhan/pi-provider-kimi-code-cached.git"
+		"url": "git+https://github.com/ersintarhan/pi-toolkit.git"
 	},
 	"type": "module",
 	"files": [
