@@ -32,6 +32,7 @@ import type { ExtensionAPI, OAuthCredential } from "@earendil-works/pi-coding-ag
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
 import { streamSimpleAnthropicCached } from "./src/cached-anthropic-stream.js";
 import { registerUsageCommand } from "./src/usage-command.js";
+import { registerContextCommand } from "./src/context-command.js";
 import claudeOauthAdapter from "./src/claude-oauth-adapter.js";
 import nativeSearchExtension from "./src/native-search.js";
 import autoContextExtension from "./src/auto-context/index.js";
@@ -1128,6 +1129,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   registerUsageCommand(pi);
+  registerContextCommand(pi);
   claudeOauthAdapter(pi);
   nativeSearchExtension(pi);
   autoContextExtension(pi);

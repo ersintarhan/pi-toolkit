@@ -171,6 +171,24 @@ Examples:
 /usage
 ```
 
+## `/context` command
+
+Shows current context-window usage without adding the generated report to future LLM context.
+
+It includes:
+
+- total context usage and model window
+- estimated category breakdown
+- active tools and slash commands
+- extension allocation by source/package
+- cache read/write and cost stats
+
+Example:
+
+```bash
+/context
+```
+
 ## Search override examples
 
 Use Kimi for coding, but ZAI for search:
