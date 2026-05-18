@@ -1,0 +1,63 @@
+{
+	"name": "@ersintarhan/pi-toolkit",
+	"version": "0.5.4",
+	"description": "pi extension that registers Kimi, MiniMax, Xiaomi MiMo, and CrofAI providers with cache fix, Anthropic OAuth adapter, and native web search with provider-override support. Search backends include ZAI MCP, Google, OpenAI, xAI, Anthropic, Claude Code, and Codex (ChatGPT) with DuckDuckGo fallback.",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"pi-provider",
+		"pi",
+		"pi-coding-agent",
+		"kimi",
+		"kimi-for-coding",
+		"kimi-k2",
+		"moonshot",
+		"minimax",
+		"minimax-m2",
+		"xiaomi",
+		"mimo",
+		"mimo-v2.5",
+		"crofai",
+		"openai",
+		"prompt-caching",
+		"cache",
+		"web-search",
+		"web-fetch",
+		"duckduckgo",
+		"search",
+		"anthropic",
+		"codex",
+		"chatgpt"
+	],
+	"author": "Ersin Tarhan <ersintarhan@gmail.com>",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ersintarhan/pi-provider-kimi-code-cached.git"
+	},
+	"type": "module",
+	"files": [
+		"index.ts",
+		"src",
+		"skills",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		],
+		"skills": [
+			"./skills"
+		]
+	},
+	"dependencies": {
+		"@anthropic-ai/sdk": "^0.32.0"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-tui": "*",
+		"@sinclair/typebox": "*"
+	}
+}
