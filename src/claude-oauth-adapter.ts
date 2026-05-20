@@ -592,13 +592,10 @@ function ensurePromptBlock(
   const text = extracted?.strippedPrompt ?? systemPrompt;
   if (!text.trim()) return blocks;
 
-  const template = blocks.find((block) => block.cache_control)?.cache_control;
-  return [
-    ...blocks,
-    template
-      ? { type: "text", text, cache_control: { ...template } }
-      : { type: "text", text },
-  ];
+  // Do not copy cache markers onto the synthetic prompt block. Anthropic
+  // allows at most 4 cache_control blocks per request, and propagating an
+  // existing marker here can push OAuth requests over that limit.
+  return [...blocks, { type: "text", text }];
 }
 
 function normalizeSystemBlocks(
