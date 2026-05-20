@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Always enforce the Anthropic cache-control marker budget even when the latest anchor is not present in the payload.
+- Lower the default anchor-cache marker budget to 3 so one slot remains available for downstream/final request mutations.
+
 ## 0.5.8
 
 

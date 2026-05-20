@@ -30,8 +30,8 @@
  *   payload, so Anthropic's strict schema validator can't reject it.
  * - `purgeLegacyOwnerFields()` strips any stale `_anchorCacheOwner` field
  *   left over from 0.2.0 / 0.2.1 on resumed sessions.
- * - `enforceMarkerLimit(4)` as a final safety net, protecting our anchor
- *   marker and evicting foreign markers oldest-first.
+ * - `enforceMarkerLimit(...)` as a final safety net on every request,
+ *   protecting our anchor marker and evicting foreign markers oldest-first.
  *
  * Verification
  * ------------
@@ -87,9 +87,12 @@ function resolveAnchorTTL(): "5m" | "1h" {
 
 function resolveAnchorMarkerBudget(): number {
 	const raw = process.env.PI_ANCHOR_CACHE_MARKER_BUDGET;
-	if (!raw) return 4;
+	// Safe default: leave one slot free for any downstream/request-finalizer
+	// mutation we do not control. Anthropic hard-fails at 5 markers, and real
+	// runtime payloads can still pick up one extra marker after our hook.
+	if (!raw) return 3;
 	const parsed = Number.parseInt(raw, 10);
-	if (!Number.isFinite(parsed)) return 4;
+	if (!Number.isFinite(parsed)) return 3;
 	return Math.max(1, Math.min(4, parsed));
 }
 
@@ -101,6 +104,7 @@ export default function (pi: ExtensionAPI) {
 		// Strip any stale _anchorCacheOwner fields stamped by 0.2.0 on resumed
 		// sessions. Anthropic's API rejects unknown fields server-side.
 		purgeLegacyOwnerFields(payload);
+		const markerBudget = resolveAnchorMarkerBudget();
 
 		// Find on-branch anchor toolResult entries; we want the last (newest) one.
 		const branch = ctx.sessionManager?.getBranch?.() ?? [];
@@ -111,14 +115,24 @@ export default function (pi: ExtensionAPI) {
 			if (typeof tcid === "string" && tcid.length > 0) lastAnchorToolCallId = tcid;
 		}
 		if (!lastAnchorToolCallId) {
-			if (process.env.PI_ANCHOR_CACHE_DEBUG) console.error("[anchor-cache] no on-branch anchors — passthrough");
-			return; // no anchors yet — nothing to do
+			const droppedByLimit = enforceMarkerLimit(payload, markerBudget);
+			if (process.env.PI_ANCHOR_CACHE_DEBUG) {
+				console.error(
+					`[anchor-cache] no on-branch anchors — enforced budget=${markerBudget} dropped-by-limit=${droppedByLimit} raw=${countMarkersRaw(payload)}`,
+				);
+			}
+			return event.payload;
 		}
 
 		const anchorLoc = findToolResultBlock(payload, lastAnchorToolCallId);
 		if (!anchorLoc) {
-			if (process.env.PI_ANCHOR_CACHE_DEBUG) console.error(`[anchor-cache] anchor ${lastAnchorToolCallId} not in payload — passthrough`);
-			return; // anchor not in payload (truncated out?) — bail safely
+			const droppedByLimit = enforceMarkerLimit(payload, markerBudget);
+			if (process.env.PI_ANCHOR_CACHE_DEBUG) {
+				console.error(
+					`[anchor-cache] anchor ${lastAnchorToolCallId} not in payload — enforced budget=${markerBudget} dropped-by-limit=${droppedByLimit} raw=${countMarkersRaw(payload)}`,
+				);
+			}
+			return event.payload;
 		}
 
 		const anchorTTL = resolveAnchorTTL();
@@ -148,13 +162,11 @@ export default function (pi: ExtensionAPI) {
 		// Install our anchor marker (owned by us).
 		setMessageMarker(payload, anchorLoc.msgIdx, anchorLoc.blockIdx, anchorControl, "last_anchor");
 
-		// Safety net: Anthropic allows at most 4 cache_control markers.
-		// In the integrated toolkit flow, claude-oauth-adapter does not add
-		// cache_control to its billing-header system block, so the safe/default
-		// budget is the real API limit: 4. If another post-hook starts injecting
-		// markers later, reserve space explicitly with
-		// PI_ANCHOR_CACHE_MARKER_BUDGET=3 (or lower).
-		const droppedByLimit = enforceMarkerLimit(payload, resolveAnchorMarkerBudget());
+		// Safety net: always enforce a marker budget after shifting. Default is 3
+		// (not 4) so we preserve one slot for any downstream/request-finalizer
+		// mutation outside this hook chain. Override via
+		// PI_ANCHOR_CACHE_MARKER_BUDGET=4 once the runtime is proven stable.
+		const droppedByLimit = enforceMarkerLimit(payload, markerBudget);
 
 		if (process.env.PI_ANCHOR_CACHE_DEBUG) {
 			const finalMarkers = listMarkers(payload).map(m =>
