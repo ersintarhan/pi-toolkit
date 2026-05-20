@@ -847,92 +847,109 @@ function streamSimpleKimi(
   };
 
   void (async () => {
-    let attempt = 0;
-    let currentKey = initialKey;
+    try {
+      let attempt = 0;
+      let currentKey = initialKey;
 
-    while (true) {
-      const patchedOptions = buildPatchedOptions(currentKey);
-      const upstream =
-        model.api === "openai-completions"
-          ? streamSimpleOpenAICompletions(
-              model as Model<"openai-completions">,
-              context,
-              patchedOptions,
-            )
-          : streamSimpleAnthropicCached(model as Model<"anthropic-messages">, context, patchedOptions);
+      while (true) {
+        const patchedOptions = buildPatchedOptions(currentKey);
+        const upstream =
+          model.api === "openai-completions"
+            ? streamSimpleOpenAICompletions(
+                model as Model<"openai-completions">,
+                context,
+                patchedOptions,
+              )
+            : streamSimpleAnthropicCached(
+                model as Model<"anthropic-messages">,
+                context,
+                patchedOptions,
+              );
 
-      let pushedAny = false;
-      let shouldRetry = false;
+        let pushedAny = false;
+        let shouldRetry = false;
 
-      try {
-        for await (const event of filterEmptyResponseStream(upstream)) {
-          // If the upstream terminates with an error before we've emitted
-          // anything downstream, speculatively try an OAuth refresh and
-          // retry. Attempt 0 may reuse a newer on-disk token; attempt 1
-          // forces a network refresh so a revoked on-disk token does not
-          // consume the only retry.
-          //
-          // Non-auth errors (overflow, network, rate-limit, etc.) still
-          // trigger wasted refreshes, but the retried request fails the
-          // same way and we forward it — pi-coding-agent's own recovery
-          // paths (compaction, retry) take over from there.
-          if (!pushedAny && attempt < 2 && event.type === "error") {
-            console.error(
-              `[kimi-coding] upstream error on first event, attempting refresh: ${event.error?.errorMessage?.slice(0, 200)}`,
-            );
+        try {
+          for await (const event of filterEmptyResponseStream(upstream)) {
+            // If the upstream terminates with an error before we've emitted
+            // anything downstream, speculatively try an OAuth refresh and
+            // retry. Attempt 0 may reuse a newer on-disk token; attempt 1
+            // forces a network refresh so a revoked on-disk token does not
+            // consume the only retry.
+            //
+            // Non-auth errors (overflow, network, rate-limit, etc.) still
+            // trigger wasted refreshes, but the retried request fails the
+            // same way and we forward it — pi-coding-agent's own recovery
+            // paths (compaction, retry) take over from there.
+            if (!pushedAny && attempt < 2 && event.type === "error") {
+              console.error(
+                `[kimi-coding] upstream error on first event, attempting refresh: ${event.error?.errorMessage?.slice(0, 200)}`,
+              );
+              const refreshed = await refreshKimiAuthToken(currentKey, {
+                forceNetworkRefresh: attempt > 0,
+              });
+              if (refreshed && refreshed !== currentKey) {
+                console.error("[kimi-coding] retrying stream with refreshed token");
+                currentKey = refreshed;
+                shouldRetry = true;
+                break;
+              }
+              console.error(
+                "[kimi-coding] refresh did not yield a new token, forwarding original error",
+              );
+            }
+            filtered.push(event);
+            pushedAny = true;
+          }
+        } catch (err) {
+          console.error("[kimi-coding] stream error:", err);
+
+          // Some failures surface as thrown stream exceptions instead of
+          // Anthropic-style `error` events. If the stream failed before any
+          // downstream event was emitted, refresh once and retry just like the
+          // first-event error path above. This covers server-side token
+          // invalidation hidden behind proxy/network wrapper errors.
+          if (!pushedAny && attempt < 2) {
             const refreshed = await refreshKimiAuthToken(currentKey, {
               forceNetworkRefresh: attempt > 0,
             });
             if (refreshed && refreshed !== currentKey) {
-              console.error("[kimi-coding] retrying stream with refreshed token");
+              console.error("[kimi-coding] retrying thrown stream error with refreshed token");
               currentKey = refreshed;
               shouldRetry = true;
-              break;
             }
-            console.error(
-              "[kimi-coding] refresh did not yield a new token, forwarding original error",
-            );
           }
-          filtered.push(event);
-          pushedAny = true;
-        }
-      } catch (err) {
-        console.error("[kimi-coding] stream error:", err);
 
-        // Some failures surface as thrown stream exceptions instead of
-        // Anthropic-style `error` events. If the stream failed before any
-        // downstream event was emitted, refresh once and retry just like the
-        // first-event error path above. This covers server-side token
-        // invalidation hidden behind proxy/network wrapper errors.
-        if (!pushedAny && attempt < 2) {
-          const refreshed = await refreshKimiAuthToken(currentKey, {
-            forceNetworkRefresh: attempt > 0,
-          });
-          if (refreshed && refreshed !== currentKey) {
-            console.error("[kimi-coding] retrying thrown stream error with refreshed token");
-            currentKey = refreshed;
-            shouldRetry = true;
+          if (!shouldRetry) {
+            filtered.push({
+              type: "error",
+              reason: "error",
+              error: {
+                content: [],
+                stopReason: "error",
+                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+              },
+            } as AssistantMessageEvent & { type: "error" });
           }
         }
 
-        if (!shouldRetry) {
-          filtered.push({
-            type: "error",
-            reason: "error",
-            error: {
-              content: [],
-              stopReason: "error",
-              usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
-            },
-          } as AssistantMessageEvent & { type: "error" });
+        if (shouldRetry) {
+          attempt++;
+          continue;
         }
+        break;
       }
-
-      if (shouldRetry) {
-        attempt++;
-        continue;
-      }
-      break;
+    } catch (err) {
+      console.error("[kimi-coding] stream bootstrap failed:", err);
+      filtered.push({
+        type: "error",
+        reason: "error",
+        error: {
+          content: [],
+          stopReason: "error",
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        },
+      } as AssistantMessageEvent & { type: "error" });
     }
   })();
 

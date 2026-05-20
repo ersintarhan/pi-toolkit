@@ -777,7 +777,12 @@ async function ddgSearch(query: string, signal?: AbortSignal): Promise<string> {
 // ─── Web Fetch ────────────────────────────────────────────────────────────────
 
 async function httpFetch(url: string, signal?: AbortSignal): Promise<string> {
-  const res = await fetch(url, {
+  const parsed = new URL(url);
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Only http/https URLs are allowed");
+  }
+
+  const res = await fetch(parsed.toString(), {
     signal,
     headers: {
       "User-Agent": "Mozilla/5.0 (compatible; PiSearch/1.0)",

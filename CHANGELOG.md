@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Guard Kimi stream bootstrap with an outer catch to avoid unhandled async IIFE failures.
+- Restrict native web fetch URLs to `http` and `https` protocols.
+
 ## 0.5.6
 
 
