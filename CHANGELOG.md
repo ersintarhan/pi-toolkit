@@ -5,6 +5,7 @@
 ### Changed
 
 - Stop copying `cache_control` markers onto the synthetic Claude OAuth prompt block to avoid Anthropic's 4-block cache limit.
+- Strip foreign Anthropic thinking signatures when forwarding prior reasoning to Kimi/MiMo across provider switches.
 
 ## 0.5.7
 

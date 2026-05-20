@@ -326,33 +326,29 @@ export function convertMessages(
 					blocks.push({ type: "text", text: sanitizeSurrogates(block.text) });
 
 				} else if (block.type === "thinking") {
+					if (options?.keepThinkingWithoutSignature) {
+						// Kimi, MiMo, and similar Anthropic-compatible providers can reuse
+						// prior thinking text but reject foreign Anthropic signatures on
+						// provider switches (e.g. Opus -> Kimi). Preserve plain thinking,
+						// drop provider-bound signatures/redacted blocks, and emit
+						// `reasoning_content` for validators that expect DeepSeek-style
+						// carry-forward fields.
+						if (block.redacted || block.thinking.trim().length === 0) continue;
+						const sanitized = sanitizeSurrogates(block.thinking);
+						blocks.push({
+							type: "thinking" as any,
+							thinking: sanitized,
+							reasoning_content: sanitized,
+						} as any);
+						continue;
+					}
 					if (block.redacted) {
 						blocks.push({ type: "redacted_thinking" as any, data: block.thinkingSignature });
 						continue;
 					}
 					if (block.thinking.trim().length === 0) continue;
 					if (!block.thinkingSignature || block.thinkingSignature.trim().length === 0) {
-						// MiMo (and similar Anthropic-compatible providers without a signature
-						// mechanism) require the thinking block itself to be forwarded
-						// verbatim — its API rejects requests where the thinking content is
-						// flattened into a text block. Native Anthropic, in contrast, only
-						// accepts thinking blocks accompanied by a valid signature.
-						//
-						// MiMo additionally validates a DeepSeek-style `reasoning_content`
-						// field on multi-turn requests that contain tool_use; per Xiaomi's
-						// "Passing Back reasoning_content" guide, the field name itself
-						// (not Anthropic's `thinking`) is what their API checks. Emit it
-						// alongside the standard thinking field to satisfy both validators.
-						if (options?.keepThinkingWithoutSignature) {
-							const sanitized = sanitizeSurrogates(block.thinking);
-							blocks.push({
-								type: "thinking" as any,
-								thinking: sanitized,
-								reasoning_content: sanitized,
-							} as any);
-						} else {
-							blocks.push({ type: "text", text: sanitizeSurrogates(block.thinking) });
-						}
+						blocks.push({ type: "text", text: sanitizeSurrogates(block.thinking) });
 					} else {
 						blocks.push({
 							type: "thinking" as any,
@@ -612,7 +608,8 @@ export function streamSimpleAnthropicCached(
 
 			const client = new Anthropic(clientOptions);
 
-			const keepThinkingWithoutSignature = model.provider === "xiaomi-mimo";
+			const keepThinkingWithoutSignature =
+				model.provider === "xiaomi-mimo" || model.provider === "kimi-coding";
 
 			const params = {
 				model: model.id,
