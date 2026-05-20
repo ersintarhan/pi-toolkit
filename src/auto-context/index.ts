@@ -83,9 +83,9 @@ export default function (pi: ExtensionAPI) {
 				parts.push(`context=${pct}%`);
 			}
 
-			// Tool-output share — proxy for context noise density. High share (>40%)
-			// hints the agent to externalize tool results (note to disk) instead of
-			// keeping them inline. Char-count is good enough; we don't need real tokens.
+			// Tool-output share — proxy for context noise density. Only surface it
+			// when the share is meaningfully high (>50%) so the status line does not
+			// imply compaction pressure during normal runs.
 			let totalChars = 0;
 			let toolChars = 0;
 			for (const m of messages as any[]) {
@@ -102,7 +102,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (totalChars > 0) {
 				const toolPct = Math.round((toolChars / totalChars) * 100);
-				parts.push(`tool=${toolPct}%`);
+				if (toolPct > 50) parts.push(`toolShare=${toolPct}%`);
 			}
 
 			// Anchor info — only consider anchors on the current branch so status

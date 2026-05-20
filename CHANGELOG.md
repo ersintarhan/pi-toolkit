@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Show `toolShare=` in the auto-context status line only when tool-output share exceeds 50%.
+
 ## 0.5.5
 
 
