@@ -30,6 +30,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import {
   Container,
+  type Component,
   type SettingItem,
   SettingsList,
   Text,
@@ -63,6 +64,14 @@ const SEARCH_TOOL_DESCRIPTION =
   "Search the web. Uses native provider search (ZAI MCP, Anthropic, Google, OpenAI, xAI) or DuckDuckGo fallback.";
 const FETCH_TOOL_DESCRIPTION =
   "Fetch a web page's text content. Truncated to 50KB / 2000 lines.";
+
+function getFirstText(content: Array<{ type: string; text?: string }> | undefined): string {
+  const first = content?.find(
+    (part): part is { type: "text"; text: string } =>
+      part?.type === "text" && typeof part.text === "string",
+  );
+  return first?.text ?? "";
+}
 
 const PROVIDERS: Record<
   string,
@@ -986,6 +995,7 @@ export default function searchExtension(pi: ExtensionAPI) {
             text: `Searching (${modeLabel}: ${provider}): "${params.query}"...`,
           },
         ],
+        details: { query: params.query, provider, method: modeLabel },
       });
       try {
         const { text, nativeError } = await doSearch(
@@ -1008,10 +1018,13 @@ export default function searchExtension(pi: ExtensionAPI) {
         };
       } catch (err: any) {
         if (signal?.aborted)
-          return { content: [{ type: "text" as const, text: "Cancelled." }] };
+          return {
+            content: [{ type: "text" as const, text: "Cancelled." }],
+            details: { error: "cancelled", query: params.query, provider, method: modeLabel },
+          };
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
-          isError: true,
+          details: { error: err.message, query: params.query, provider, method: modeLabel },
         };
       }
     },
@@ -1024,7 +1037,7 @@ export default function searchExtension(pi: ExtensionAPI) {
     },
     renderResult(r, { expanded, isPartial }, t) {
       if (isPartial) return new Text(t.fg("warning", "Searching..."), 0, 0);
-      const text = r.content[0]?.text ?? "",
+      const text = getFirstText(r.content as Array<{ type: string; text?: string }>),
         lines = text.split("\n").length;
       return expanded
         ? new Text(text, 0, 0)
@@ -1043,7 +1056,10 @@ export default function searchExtension(pi: ExtensionAPI) {
     parameters: Type.Object({ url: Type.String({ description: "URL" }) }),
     async execute(_id, params, signal, onUpdate, ctx) {
       if (!isFetchAvailable(ctx, config))
-        return { content: [{ type: "text" as const, text: "Web fetch disabled." }] };
+        return {
+          content: [{ type: "text" as const, text: "Web fetch disabled." }],
+          details: { error: "disabled", url: params.url, provider: "disabled", method: "disabled" },
+        };
       const provider = getSearchProvider(ctx, config);
       const cap = PROVIDERS[provider];
       const useNative = !!cap?.nativeFetch && provider === "claude-bridge";
@@ -1055,6 +1071,7 @@ export default function searchExtension(pi: ExtensionAPI) {
             text: `Fetching${modeLabel ? ` (${modeLabel}: ${provider})` : ""} ${params.url}...`,
           },
         ],
+        details: { url: params.url, provider, method: modeLabel || "local" },
       });
       try {
         let text: string;
@@ -1082,10 +1099,13 @@ export default function searchExtension(pi: ExtensionAPI) {
         };
       } catch (err: any) {
         if (signal?.aborted)
-          return { content: [{ type: "text" as const, text: "Cancelled." }] };
+          return {
+            content: [{ type: "text" as const, text: "Cancelled." }],
+            details: { error: "cancelled", url: params.url, provider, method: modeLabel || "local" },
+          };
         return {
           content: [{ type: "text" as const, text: `Error: ${err.message}` }],
-          isError: true,
+          details: { error: err.message, url: params.url, provider, method: modeLabel || "local" },
         };
       }
     },
@@ -1098,7 +1118,7 @@ export default function searchExtension(pi: ExtensionAPI) {
     },
     renderResult(r, { expanded, isPartial }, t) {
       if (isPartial) return new Text(t.fg("warning", "Fetching..."), 0, 0);
-      const text = r.content[0]?.text ?? "",
+      const text = getFirstText(r.content as Array<{ type: string; text?: string }>),
         lines = text.split("\n").length;
       return expanded
         ? new Text(text, 0, 0)
@@ -1253,7 +1273,7 @@ export default function searchExtension(pi: ExtensionAPI) {
         id: "searchProvider",
         label: "Search Provider",
         currentValue: config.searchProvider ?? "auto",
-        submenu: (_currentValue, done) => {
+        submenu: (_currentValue, done): Component => {
           const selectItems: SelectItem[] = allProviderIds.map((id) => {
             const cap = id === "auto" ? undefined : PROVIDERS[id];
             return {
@@ -1268,42 +1288,23 @@ export default function searchExtension(pi: ExtensionAPI) {
                   : `search: ${cap!.nativeSearch ? "native" : "duckduckgo"} | key: ${hasCredentials(id) ? "yes" : "no"}`,
             };
           });
-          let selectedIndex = Math.max(0, allProviderIds.indexOf(config.searchProvider ?? "auto"));
-          return ctx.ui.custom((tui2, theme2, _kb2, done2) => {
-            const container2 = new Container();
-            container2.addChild(new Text(theme2.fg("accent", theme2.bold("Select Search Provider"))));
-            container2.addChild(new Text(theme2.fg("dim", "✓ = credentials available • Enter = select • Esc = cancel")));
-            container2.addChild(new Text(""));
-            const sl2 = new SelectList(selectItems, Math.min(selectItems.length, 12), {
-              selectedPrefix: (t) => theme2.fg("accent", t),
-              selectedText: (t) => theme2.fg("accent", t),
-              description: (t) => theme2.fg("muted", t),
-              scrollInfo: (t) => theme2.fg("dim", t),
-              noMatch: (t) => theme2.fg("warning", t),
-            });
-            sl2.setSelectedIndex(selectedIndex);
-            sl2.onSelect = (item) => {
-              done(item.value);
-              done2(undefined);
-            };
-            sl2.onCancel = () => {
-              done(undefined);
-              done2(undefined);
-            };
-            container2.addChild(sl2);
-            return {
-              render(w: number) {
-                return container2.render(w);
-              },
-              invalidate() {
-                container2.invalidate();
-              },
-              handleInput(d: string) {
-                sl2.handleInput(d);
-                tui2.requestRender();
-              },
-            };
+          const selectedIndex = Math.max(0, allProviderIds.indexOf(config.searchProvider ?? "auto"));
+          const container2 = new Container();
+          container2.addChild(new Text(theme.fg("accent", theme.bold("Select Search Provider"))));
+          container2.addChild(new Text(theme.fg("dim", "✓ = credentials available • Enter = select • Esc = cancel")));
+          container2.addChild(new Text(""));
+          const sl2 = new SelectList(selectItems, Math.min(selectItems.length, 12), {
+            selectedPrefix: (t) => theme.fg("accent", t),
+            selectedText: (t) => theme.fg("accent", t),
+            description: (t) => theme.fg("muted", t),
+            scrollInfo: (t) => theme.fg("dim", t),
+            noMatch: (t) => theme.fg("warning", t),
           });
+          sl2.setSelectedIndex(selectedIndex);
+          sl2.onSelect = (item) => done(item.value);
+          sl2.onCancel = () => done(undefined);
+          container2.addChild(sl2);
+          return container2;
         },
       });
       for (const pid of providerIds) {

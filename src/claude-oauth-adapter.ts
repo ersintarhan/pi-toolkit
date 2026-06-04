@@ -11,7 +11,8 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { Message } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
 
 const DOCS_MARKER =
   "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
@@ -58,23 +59,15 @@ interface AdapterStatusState {
   reason: string;
 }
 
-interface TextContentPart {
-  type: "text";
-  text: string;
-}
-
-interface ImageContentPart {
-  type: "image";
-  source: unknown;
-}
-
+type TextContentPart = TextContent;
+type ImageContentPart = ImageContent;
 type MessageContentPart = TextContentPart | ImageContentPart;
-
 type CustomLikeMessage = {
   role: "custom";
   customType: string;
   content: string | MessageContentPart[];
   display: boolean;
+  details?: unknown;
   timestamp: number;
 };
 
@@ -122,8 +115,17 @@ function isTextBlock(value: unknown): value is TextBlock {
   );
 }
 
-function isUserMessage(message: Message): message is UserLikeMessage {
-  return message.role === "user";
+function isUserMessage(message: AgentMessage): message is UserLikeMessage {
+  return (message as Message).role === "user";
+}
+
+function isCustomLikeMessage(message: unknown): message is CustomLikeMessage {
+  return (
+    isObject(message) &&
+    message.role === "custom" &&
+    typeof message.customType === "string" &&
+    (typeof message.content === "string" || Array.isArray(message.content))
+  );
 }
 
 function getEnvMode(): ReinjectionMode {
@@ -424,16 +426,20 @@ function wrapDocsContext(docsSection: string): string {
 }
 
 function summarizeMessages(
-  messages: Message[],
+  messages: AgentMessage[],
 ): Array<Record<string, unknown>> {
   return messages.slice(-4).map((message) => {
     if (
-      message.role === "user" ||
-      message.role === "assistant" ||
-      message.role === "toolResult"
+      isObject(message) &&
+      "role" in message &&
+      ((message as Message).role === "user" ||
+        (message as Message).role === "assistant" ||
+        (message as Message).role === "toolResult") &&
+      "content" in message
     ) {
-      const content = Array.isArray(message.content)
-        ? message.content
+      const rawContent = (message as Message).content;
+      const content = Array.isArray(rawContent)
+        ? rawContent
             .filter(
               (part): part is TextContentPart =>
                 isObject(part) &&
@@ -442,34 +448,35 @@ function summarizeMessages(
             )
             .map((part) => part.text)
             .join("\n")
-        : String(message.content);
-      return { role: message.role, text: content.slice(0, 140) };
+        : String(rawContent);
+      return { role: (message as Message).role, text: content.slice(0, 140) };
     }
 
-    if (message.role === "custom") {
+    const customMessage = isCustomLikeMessage(message) ? message : null;
+    if (customMessage) {
       const content =
-        typeof message.content === "string"
-          ? message.content
-          : message.content
+        typeof customMessage.content === "string"
+          ? customMessage.content
+          : customMessage.content
               .filter((part): part is TextContentPart => part.type === "text")
               .map((part) => part.text)
               .join("\n");
       return {
-        role: message.role,
-        customType: message.customType,
+        role: customMessage.role,
+        customType: customMessage.customType,
         text: content.slice(0, 140),
       };
     }
 
-    return { role: message.role };
+    return { role: (message as Message).role ?? "unknown" };
   });
 }
 
 function prependCustomMessage(
-  messages: Message[],
+  messages: AgentMessage[],
   docsSection: string,
   timestamp: number,
-): Message[] {
+): AgentMessage[] {
   const customMessage: CustomLikeMessage = {
     role: "custom",
     customType: CUSTOM_TYPE,
@@ -481,18 +488,18 @@ function prependCustomMessage(
   const latestUserIndex = [...messages].findLastIndex((message) =>
     isUserMessage(message),
   );
-  if (latestUserIndex < 0) return [...messages, customMessage as Message];
+  if (latestUserIndex < 0) return [...messages, customMessage as unknown as AgentMessage];
 
   const nextMessages = [...messages];
-  nextMessages.splice(latestUserIndex, 0, customMessage as Message);
+  nextMessages.splice(latestUserIndex, 0, customMessage as unknown as AgentMessage);
   return nextMessages;
 }
 
 function appendCustomMessage(
-  messages: Message[],
+  messages: AgentMessage[],
   docsSection: string,
   timestamp: number,
-): Message[] {
+): AgentMessage[] {
   const customMessage: CustomLikeMessage = {
     role: "custom",
     customType: CUSTOM_TYPE,
@@ -504,17 +511,17 @@ function appendCustomMessage(
   const latestUserIndex = [...messages].findLastIndex((message) =>
     isUserMessage(message),
   );
-  if (latestUserIndex < 0) return [...messages, customMessage as Message];
+  if (latestUserIndex < 0) return [...messages, customMessage as unknown as AgentMessage];
 
   const nextMessages = [...messages];
-  nextMessages.splice(latestUserIndex + 1, 0, customMessage as Message);
+  nextMessages.splice(latestUserIndex + 1, 0, customMessage as unknown as AgentMessage);
   return nextMessages;
 }
 
 function prependReminderToLatestUser(
-  messages: Message[],
+  messages: AgentMessage[],
   docsSection: string,
-): Message[] {
+): AgentMessage[] {
   const latestUserIndex = [...messages].findLastIndex((message) =>
     isUserMessage(message),
   );
@@ -556,7 +563,7 @@ function prependReminderToLatestUser(
   return nextMessages;
 }
 
-function injectDocs(messages: Message[], state: ActiveTurnState): Message[] {
+function injectDocs(messages: AgentMessage[], state: ActiveTurnState): AgentMessage[] {
   if (!state.shouldInject || state.mode === "none") return messages;
 
   switch (state.mode) {

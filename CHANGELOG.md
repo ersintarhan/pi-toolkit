@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.10
+
+### Added
+
+- Add `minimax/MiniMax-M3` to the built-in MiniMax provider catalog with 1M context-window metadata.
+
+### Changed
+
+- Harden native web fetch against SSRF and unsafe redirect targets.
+- Improve auto-context pivot/input-editor restore behavior and add test/CI coverage around the toolkit flows.
+
 ## 0.5.9
 
 ### Changed

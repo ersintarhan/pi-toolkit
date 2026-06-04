@@ -118,7 +118,8 @@ Optional:
 ### MiniMax
 
 ```bash
-/model minimax/MiniMax-M2
+/model minimax/MiniMax-M3
+/model minimax/MiniMax-M2.7
 ```
 
 Requires:

@@ -1,9 +1,26 @@
-import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { resolveTarget, getAnchors, findAnchorByName, formatAnchorContent, getEditorInjectionFor, type AnchorState } from "./anchors.js";
 import { scheduleAction } from "../command-actions.js";
 import { scanAnchors } from "../utils.js";
+
+const ContextActionSchema = Type.Union(
+	[
+		Type.Literal("view"),
+		Type.Literal("recall"),
+		Type.Literal("anchor"),
+		Type.Literal("pivot"),
+	],
+	{ description: "Action to perform" },
+);
+
+const ContextScopeSchema = Type.Union(
+	[Type.Literal("cwd"), Type.Literal("all")],
+	{
+		description:
+			'"cwd" (default) limits recall to sessions in the current working directory; "all" scans every session. For recall.',
+	},
+);
 
 export function registerContextRouter(pi: ExtensionAPI) {
 	pi.registerTool({
@@ -24,13 +41,11 @@ export function registerContextRouter(pi: ExtensionAPI) {
 			"Use context(action='recall') before related work to check past session anchors.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(["view", "recall", "anchor", "pivot"] as const, {
-				description: "Action to perform",
-			}),
+			action: ContextActionSchema,
 			limit: Type.Optional(Type.Number({ description: "Max results to show. Default: 30 for view, 10 for recall." })),
 			offset: Type.Optional(Type.Number({ description: "Skip N results. Default: 0. For view and recall." })),
 			keyword: Type.Optional(Type.String({ description: "Keyword (case-insensitive) matched against anchor name and summary. For recall." })),
-			scope: Type.Optional(StringEnum(["cwd", "all"] as const, { description: '"cwd" (default) limits recall to sessions in the current working directory; "all" scans every session. For recall.' })),
+			scope: Type.Optional(ContextScopeSchema),
 			name: Type.Optional(Type.String({ description: "Anchor name (must be unique). For anchor." })),
 			summary: Type.Optional(Type.String({ description: "Retrospective state: what's done, key decisions, what was confirmed. For anchor." })),
 			target: Type.Optional(Type.String({ description: "Target: anchor name, entry ID, or label. For pivot." })),

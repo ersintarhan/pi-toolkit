@@ -25,8 +25,8 @@ import type {
   ThinkingLevel,
 } from "@earendil-works/pi-ai";
 import {
+  createAssistantMessageEventStream,
   streamSimpleOpenAICompletions,
-  AssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, OAuthCredential } from "@earendil-works/pi-coding-agent";
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
@@ -803,8 +803,8 @@ function streamSimpleKimi(
   model: Model<"anthropic-messages" | "openai-completions">,
   context: Context,
   options?: SimpleStreamOptions,
-): AssistantMessageEventStream {
-  const filtered = new AssistantMessageEventStream();
+) {
+  const filtered = createAssistantMessageEventStream();
   const initialKey = options?.apiKey || process.env.KIMI_API_KEY || "";
 
   const cacheKeyOverride = (
@@ -974,8 +974,8 @@ async function refreshCrofaiModels(apiKey: string): Promise<any[]> {
   if (!res.ok) {
     throw new Error(`CrofAI models HTTP ${res.status}`);
   }
-  const body = await res.json();
-  const models = Array.isArray(body.data) ? body.data : [];
+  const body: unknown = await res.json();
+  const models = isRecord(body) && Array.isArray(body.data) ? body.data : [];
   crofaiModelsCache = models;
   crofaiModelsLastFetch = Date.now();
   return models;
@@ -1021,7 +1021,7 @@ export default function (pi: ExtensionAPI) {
         id: "kimi-for-coding",
         name: "Kimi for Coding",
         reasoning: true,
-        input: ["text", "image", "video"],
+        input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 262144,
         maxTokens: 32000,
@@ -1042,6 +1042,15 @@ export default function (pi: ExtensionAPI) {
     api: "anthropic-messages",
     streamSimple: streamSimpleAnthropicCached,
     models: [
+      {
+        id: "MiniMax-M3",
+        name: "MiniMax-M3",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0.375 },
+        contextWindow: 1000000,
+        maxTokens: 131072,
+      },
       {
         id: "MiniMax-M2.7",
         name: "MiniMax-M2.7",
