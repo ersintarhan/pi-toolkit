@@ -31,6 +31,11 @@
 	],
 	"author": "Ersin Tarhan <ersintarhan@gmail.com>",
 	"license": "MIT",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"lint": "oxlint src/ index.ts"
+	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/ersintarhan/pi-toolkit.git"
@@ -52,12 +57,16 @@
 		]
 	},
 	"dependencies": {
-		"@anthropic-ai/sdk": "^0.32.0"
+		"@anthropic-ai/sdk": "^0.100.1"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-tui": "*",
 		"@sinclair/typebox": "*"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.14",
+		"typescript": "^6.0.3"
 	}
 }

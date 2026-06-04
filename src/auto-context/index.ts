@@ -16,7 +16,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { patchBindCommandContext, runPending, clearPending, isArmed, hasPending, getActivePivot } from "./command-actions.js";
-import { isAnchorEntry, isAnchorToolResult } from "./context/anchors.js";
+import { isAnchorEntry, isAnchorToolResult, anchorNameOf } from "./context/anchors.js";
 import { registerContextRouter } from "./context/router.js";
 import registerAnchorCache from "./anchor-cache/index.js";
 
@@ -109,16 +109,18 @@ export default function (pi: ExtensionAPI) {
 			// reflects where the agent actually is, not orphaned anchors from abandoned branches.
 			const branchEntries = ctx.sessionManager?.getBranch?.() ?? [];
 			const anchors = branchEntries.filter(isAnchorEntry);
+			let latestAnchorName: string | undefined;
+			let latestAnchorDistance = 0;
 			if (anchors.length > 0) {
-				const latestAnchor = anchors[anchors.length - 1] as any;
-				const latestName = latestAnchor?.message?.details?.anchor?.name;
-				if (latestName) {
+				const latestAnchor = anchors[anchors.length - 1];
+				latestAnchorName = anchorNameOf(latestAnchor);
+				if (latestAnchorName) {
 					// Distance to the most recent anchor, measured in branch entries.
 					// Long distance (e.g. -15) reminds the agent to checkpoint progress
 					// rather than risk a long un-anchored chain that's hard to pivot back to.
 					const latestIdx = branchEntries.indexOf(latestAnchor);
-					const distance = latestIdx >= 0 ? branchEntries.length - 1 - latestIdx : 0;
-					parts.push(`anchor=${latestName} (-${distance})`);
+					latestAnchorDistance = latestIdx >= 0 ? branchEntries.length - 1 - latestIdx : 0;
+					parts.push(`anchor=${latestAnchorName} (-${latestAnchorDistance})`);
 				}
 			}
 
@@ -130,6 +132,22 @@ export default function (pi: ExtensionAPI) {
 					parts.push(`hint=no-anchors-yet`);
 					anchorReminderSent = true;
 				}
+			}
+
+			// Human-facing footer mirror of the model status line. Uses pi's status
+			// bar (alongside git branch / other extensions), never the transcript
+			// or input editor.
+			if (ctx.hasUI) {
+				const footerBits: string[] = [];
+				if (usage && typeof usage.percent === "number") {
+					footerBits.push(`ctx ${Math.min(100, Math.round(usage.percent))}%`);
+				}
+				if (latestAnchorName) {
+					footerBits.push(
+						`anchor:${latestAnchorName}${latestAnchorDistance > 0 ? ` -${latestAnchorDistance}` : ""}`,
+					);
+				}
+				ctx.ui.setStatus("auto-context", footerBits.length ? footerBits.join(" · ") : undefined);
 			}
 
 			const statusMsg = {
@@ -178,6 +196,14 @@ export default function (pi: ExtensionAPI) {
 			: undefined;
 		const runtime = {
 			sendFollowUp: (msg: string) => pi.sendUserMessage(msg, { deliverAs: "followUp" }),
+			getEditorText:
+				ctx.hasUI && typeof ctx.ui.getEditorText === "function"
+					? () => ctx.ui.getEditorText()
+					: undefined,
+			setEditorText:
+				ctx.hasUI && typeof ctx.ui.setEditorText === "function"
+					? (t: string) => ctx.ui.setEditorText(t)
+					: undefined,
 		};
 		if (pendingRunTimer) clearTimeout(pendingRunTimer);
 		pendingRunTimer = setTimeout(() => {
@@ -205,8 +231,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// Clear stale pending state on session shutdown.
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
 		anchorReminderSent = false;
+		if (ctx.hasUI) ctx.ui.setStatus("auto-context", undefined);
 		if (pendingRunTimer) {
 			clearTimeout(pendingRunTimer);
 			pendingRunTimer = undefined;

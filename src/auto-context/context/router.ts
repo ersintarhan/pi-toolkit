@@ -1,7 +1,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { resolveTarget, getAnchors, findAnchorByName, formatAnchorContent, type AnchorState } from "./anchors.js";
+import { resolveTarget, getAnchors, findAnchorByName, formatAnchorContent, getEditorInjectionFor, type AnchorState } from "./anchors.js";
 import { scheduleAction } from "../command-actions.js";
 import { scanAnchors } from "../utils.js";
 
@@ -220,6 +220,8 @@ export function registerContextRouter(pi: ExtensionAPI) {
 							targetId,
 							carryover: carryoverWithReturn,
 							message: params.message,
+							label: params.target,
+							expectedInjection: getEditorInjectionFor(ctx.sessionManager, targetId),
 						},
 						successText: `Scheduled pivot to ${params.target} (${targetId.slice(0, 8)})${params.message ? " (with custom followUp message)" : ""}.`,
 						details: { scheduled: "pivot", targetId, message: params.message },
