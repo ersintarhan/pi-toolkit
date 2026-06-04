@@ -39,6 +39,7 @@ import {
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { hasCodexAuth, refreshCodexAuthStatus } from "./search/codex-auth.js";
 import { executeCodexSearch } from "./search/codex-search.js";
+import { assertPublicUrl } from "./search/ssrf.js";
 
 interface SearchConfig {
   enabled: boolean;
@@ -51,7 +52,17 @@ interface SearchConfig {
     string,
     { searchEnabled?: boolean; fetchEnabled?: boolean }
   >;
+  /** Override the registered tool names to dodge collisions with other
+   *  extensions / MCP servers that also expose web_search / web_fetch.
+   *  Empty/unset => the defaults "web_search" / "web_fetch". */
+  searchToolName?: string;
+  fetchToolName?: string;
 }
+
+const SEARCH_TOOL_DESCRIPTION =
+  "Search the web. Uses native provider search (ZAI MCP, Anthropic, Google, OpenAI, xAI) or DuckDuckGo fallback.";
+const FETCH_TOOL_DESCRIPTION =
+  "Fetch a web page's text content. Truncated to 50KB / 2000 lines.";
 
 const PROVIDERS: Record<
   string,
@@ -233,6 +244,14 @@ function normalizeConfig(value: unknown): SearchConfig {
     searchEnabled: parsed.searchEnabled ?? true,
     fetchEnabled: parsed.fetchEnabled ?? true,
     searchProvider,
+    searchToolName:
+      typeof parsed.searchToolName === "string" && parsed.searchToolName.trim()
+        ? parsed.searchToolName.trim()
+        : undefined,
+    fetchToolName:
+      typeof parsed.fetchToolName === "string" && parsed.fetchToolName.trim()
+        ? parsed.fetchToolName.trim()
+        : undefined,
     providerOverrides,
   };
 }
@@ -453,16 +472,17 @@ async function anthropicSearch(
   for (const block of data.content || []) {
     if (block.type === "text") {
       parts.push(block.text);
+      if (block.citations) {
+        for (const cit of block.citations || []) {
+          if (cit.type === "web_search_result_location") {
+            sources.push({ title: cit.title || "", url: cit.url || "" });
+          }
+        }
+      }
     } else if (block.type === "web_search_tool_result") {
       for (const result of block.content || []) {
         if (result.type === "web_search_result") {
           sources.push({ title: result.title || "", url: result.url || "" });
-        }
-      }
-    } else if (block.type === "text" && block.citations) {
-      for (const cit of block.citations || []) {
-        if (cit.type === "web_search_result_location") {
-          sources.push({ title: cit.title || "", url: cit.url || "" });
         }
       }
     }
@@ -777,38 +797,47 @@ async function ddgSearch(query: string, signal?: AbortSignal): Promise<string> {
 // ─── Web Fetch ────────────────────────────────────────────────────────────────
 
 async function httpFetch(url: string, signal?: AbortSignal): Promise<string> {
-  const parsed = new URL(url);
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new Error("Only http/https URLs are allowed");
+  const headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 (compatible; PiSearch/1.0)",
+    Accept: "text/html,text/plain,application/json",
+  };
+  const MAX_REDIRECTS = 5;
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const target = await assertPublicUrl(current);
+    const res = await fetch(target.toString(), {
+      signal,
+      headers,
+      redirect: "manual",
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location) throw new Error(`Redirect ${res.status} with no Location header`);
+      current = new URL(location, target).toString();
+      continue;
+    }
+    if (!res.ok) throw new Error(`Fetch ${res.status} ${res.statusText}`);
+    const ct = res.headers.get("content-type") || "";
+    let text = ct.includes("application/json")
+      ? JSON.stringify(await res.json(), null, 2)
+      : await res.text();
+    if (ct.includes("text/html"))
+      text = text
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    const t = truncateHead(text, {
+      maxLines: DEFAULT_MAX_LINES,
+      maxBytes: DEFAULT_MAX_BYTES,
+    });
+    return (
+      t.content +
+      (t.truncated ? `\n\n[Truncated: ${t.outputLines}/${t.totalLines} lines]` : "")
+    );
   }
-
-  const res = await fetch(parsed.toString(), {
-    signal,
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; PiSearch/1.0)",
-      Accept: "text/html,text/plain,application/json",
-    },
-  });
-  if (!res.ok) throw new Error(`Fetch ${res.status} ${res.statusText}`);
-  const ct = res.headers.get("content-type") || "";
-  let text = ct.includes("application/json")
-    ? JSON.stringify(await res.json(), null, 2)
-    : await res.text();
-  if (ct.includes("text/html"))
-    text = text
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  const t = truncateHead(text, {
-    maxLines: DEFAULT_MAX_LINES,
-    maxBytes: DEFAULT_MAX_BYTES,
-  });
-  return (
-    t.content +
-    (t.truncated ? `\n\n[Truncated: ${t.outputLines}/${t.totalLines} lines]` : "")
-  );
+  throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
 }
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
@@ -891,19 +920,47 @@ function isFetchAvailable(ctx: ExtensionContext, config: SearchConfig) {
 export default function searchExtension(pi: ExtensionAPI) {
   let config = loadConfig();
 
+  // Tool names are fixed at registration (load) time. Capture them once so a
+  // mid-session rename (which only takes effect next session) cannot desync the
+  // active-tools bookkeeping below from the names actually registered.
+  const searchToolName = config.searchToolName?.trim() || "web_search";
+  const fetchToolName = config.fetchToolName?.trim() || "web_fetch";
+
   // Prime async Codex auth status cache used by synchronous capability checks.
   refreshCodexAuthStatus().catch(() => {});
 
   pi.on("session_start", async (_event, ctx) => {
     await refreshCodexAuthStatus();
     updateStatus(ctx);
+    warnOnToolCollision(ctx);
   });
 
+  // Pi keeps only the FIRST registration for a given tool name (load order
+  // decides the winner) and silently drops later ones. If another extension or
+  // MCP server shadowed our web_search/web_fetch, surface it so the user can
+  // rename ours via "/search toolname <name>".
+  function warnOnToolCollision(ctx: ExtensionContext) {
+    if (!ctx.hasUI || !config.enabled || typeof pi.getAllTools !== "function") return;
+    const tools = pi.getAllTools();
+    const check = (name: string, ownDescription: string, kind: string) => {
+      const winner = tools.find((t) => t.name === name);
+      if (winner && winner.description !== ownDescription) {
+        const src = winner.sourceInfo?.source ?? "another extension";
+        ctx.ui.notify(
+          `${kind} tool "${name}" is provided by ${src}; pi-toolkit's is shadowed. ` +
+            `Run "/search toolname <name>" to rename it.`,
+          "warning",
+        );
+      }
+    };
+    if (config.searchEnabled) check(searchToolName, SEARCH_TOOL_DESCRIPTION, "Web search");
+    if (config.fetchEnabled) check(fetchToolName, FETCH_TOOL_DESCRIPTION, "Web fetch");
+  }
+
   pi.registerTool({
-    name: "web_search",
+    name: searchToolName,
     label: "Web Search",
-    description:
-      "Search the web. Uses native provider search (ZAI MCP, Anthropic, Google, OpenAI, xAI) or DuckDuckGo fallback.",
+    description: SEARCH_TOOL_DESCRIPTION,
     parameters: Type.Object({ query: Type.String({ description: "Search query" }) }),
     async execute(_id, params, signal, onUpdate, ctx) {
       if (!isSearchAvailable(ctx, config))
@@ -980,9 +1037,9 @@ export default function searchExtension(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "web_fetch",
+    name: fetchToolName,
     label: "Web Fetch",
-    description: "Fetch a web page's text content. Truncated to 50KB / 2000 lines.",
+    description: FETCH_TOOL_DESCRIPTION,
     parameters: Type.Object({ url: Type.String({ description: "URL" }) }),
     async execute(_id, params, signal, onUpdate, ctx) {
       if (!isFetchAvailable(ctx, config))
@@ -1058,7 +1115,7 @@ export default function searchExtension(pi: ExtensionAPI) {
   pi.registerCommand("search", {
     description: "Configure web search & fetch tools",
     getArgumentCompletions(p) {
-      const staticArgs = ["on", "off", "providers", "config", "provider"];
+      const staticArgs = ["on", "off", "providers", "config", "provider", "toolname"];
       if (p.startsWith("provider ")) {
         const prefix = p.slice(9);
         return Object.keys(PROVIDERS)
@@ -1100,7 +1157,7 @@ export default function searchExtension(pi: ExtensionAPI) {
         config.searchEnabled = true;
         config.fetchEnabled = true;
         saveConfig(config);
-        pi.setActiveTools([...pi.getActiveTools(), "web_search", "web_fetch"]);
+        pi.setActiveTools([...pi.getActiveTools(), searchToolName, fetchToolName]);
         ctx.ui.notify("Search enabled", "info");
         return;
       }
@@ -1108,9 +1165,54 @@ export default function searchExtension(pi: ExtensionAPI) {
         config.enabled = false;
         saveConfig(config);
         pi.setActiveTools(
-          pi.getActiveTools().filter((t) => t !== "web_search" && t !== "web_fetch"),
+          pi.getActiveTools().filter((t) => t !== searchToolName && t !== fetchToolName),
         );
         ctx.ui.notify("Search disabled", "info");
+        return;
+      }
+      if (sub === "toolname" || sub?.startsWith("toolname ")) {
+        const rest = (args ?? "").trim().slice("toolname".length).trim();
+        if (!rest) {
+          ctx.ui.notify(
+            `Search tools: "${searchToolName}" / "${fetchToolName}" (active this session). ` +
+              `Use "/search toolname <search> [<fetch>]" to change, or "/search toolname reset".`,
+            "info",
+          );
+          return;
+        }
+        if (["reset", "default", "auto"].includes(rest.toLowerCase())) {
+          delete config.searchToolName;
+          delete config.fetchToolName;
+          saveConfig(config);
+          ctx.ui.notify(
+            'Tool names reset to "web_search" / "web_fetch" — restart the session to apply.',
+            "info",
+          );
+          return;
+        }
+        const parts = rest.split(/\s+/);
+        const valid = (n: string) => /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(n);
+        if (!valid(parts[0]!) || (parts[1] !== undefined && !valid(parts[1]))) {
+          ctx.ui.notify(
+            "Tool names must start with a letter and use only [A-Za-z0-9_-] (max 64 chars).",
+            "warning",
+          );
+          return;
+        }
+        const effectiveFetch = parts[1] ?? config.fetchToolName ?? "web_fetch";
+        if (parts[0] === effectiveFetch) {
+          ctx.ui.notify("Search and fetch tools need different names.", "warning");
+          return;
+        }
+        config.searchToolName = parts[0];
+        if (parts[1] !== undefined) config.fetchToolName = parts[1];
+        saveConfig(config);
+        ctx.ui.notify(
+          `Tool names set to "${config.searchToolName}"` +
+            (config.fetchToolName ? ` / "${config.fetchToolName}"` : "") +
+            " — restart the session to apply.",
+          "info",
+        );
         return;
       }
       await showSearchSettings(ctx);
@@ -1322,10 +1424,17 @@ export default function searchExtension(pi: ExtensionAPI) {
     const baseUrl = getCurrentBaseUrl(ctx);
     const cap = searchProvider ? PROVIDERS[searchProvider] : undefined;
     const auto = !config.searchProvider;
+    const pendingSearch = config.searchToolName?.trim() || "web_search";
+    const pendingFetch = config.fetchToolName?.trim() || "web_fetch";
+    const pendingNote =
+      pendingSearch !== searchToolName || pendingFetch !== fetchToolName
+        ? ` (pending: ${pendingSearch} / ${pendingFetch} — restart to apply)`
+        : "";
     ctx.ui.notify(
       [
         `Extension: ${config.enabled ? "enabled" : "disabled"}`,
         `Search: ${config.searchEnabled ? "enabled" : "disabled"} | Fetch: ${config.fetchEnabled ? "enabled" : "disabled"}`,
+        `Tools: ${searchToolName} / ${fetchToolName}${pendingNote}`,
         ``,
         `Search provider: ${cap?.name ?? searchProvider ?? "?"}${auto ? " (auto)" : " (override)"} ${hasCredentials(searchProvider ?? "") ? "✓" : "✗"}`,
         `Model provider: ${activeProvider ?? "?"}`,
@@ -1342,9 +1451,9 @@ export default function searchExtension(pi: ExtensionAPI) {
   function applyToolsConfig(ctx: ExtensionContext) {
     const a = pi
       .getActiveTools()
-      .filter((t) => t !== "web_search" && t !== "web_fetch");
-    if (config.enabled && isSearchAvailable(ctx, config)) a.push("web_search");
-    if (config.enabled && isFetchAvailable(ctx, config)) a.push("web_fetch");
+      .filter((t) => t !== searchToolName && t !== fetchToolName);
+    if (config.enabled && isSearchAvailable(ctx, config)) a.push(searchToolName);
+    if (config.enabled && isFetchAvailable(ctx, config)) a.push(fetchToolName);
     pi.setActiveTools(a);
   }
 

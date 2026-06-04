@@ -116,3 +116,55 @@ export function findAnchorByName(sm: any, name: string): AnchorState | null {
 export function formatAnchorContent(name: string, summary: string): string {
 	return `[Anchor: ${name}]\n${summary}`;
 }
+
+/** Narrow unknown to a plain object so property access stays type-safe. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+/** Concatenate pi message content (string, or array of text blocks). */
+function extractMessageText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	let out = "";
+	for (const block of content) {
+		if (isRecord(block) && block.type === "text" && typeof block.text === "string") {
+			out += block.text;
+		}
+	}
+	return out;
+}
+
+/** Anchor name for a branch entry, or undefined when it is not an anchor. */
+export function anchorNameOf(entry: unknown): string | undefined {
+	if (!isRecord(entry)) return undefined;
+	const message = entry.message;
+	if (!isRecord(message)) return undefined;
+	const details = message.details;
+	if (!isRecord(details)) return undefined;
+	const anchor = details.anchor;
+	if (!isRecord(anchor)) return undefined;
+	return typeof anchor.name === "string" ? anchor.name : undefined;
+}
+
+/**
+ * Mirror of pi's navigateTree editor auto-fill: when a pivot lands on a `user`
+ * or `custom_message` entry, pi drops that entry's text into an empty editor.
+ * We replicate the (trivial, stable) extraction so the pivot runner can clear
+ * exactly that injected text and nothing else. Any other target (e.g. an anchor
+ * toolResult) injects nothing, so this returns "".
+ */
+export function getEditorInjectionFor(
+	sm: { getEntry(id: string): unknown },
+	targetId: string,
+): string {
+	const entry = sm.getEntry(targetId);
+	if (!isRecord(entry)) return "";
+	if (entry.type === "message" && isRecord(entry.message) && entry.message.role === "user") {
+		return extractMessageText(entry.message.content);
+	}
+	if (entry.type === "custom_message") {
+		return extractMessageText(entry.content);
+	}
+	return "";
+}

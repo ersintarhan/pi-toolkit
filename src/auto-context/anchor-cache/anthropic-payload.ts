@@ -331,8 +331,5 @@ function pickEvictionTarget(markers: MarkerRef[]): MarkerRef | null {
 	// tier 3: foreign system markers
 	const foreignSystem = markers.filter(m => m.section === "system" && !m.owner);
 	if (foreignSystem.length > 0) return foreignSystem[0];
-	// tier 4: even our own — last resort, drop the OLDEST anchor (mid_anchor before last_anchor)
-	const ownAnchors = markers.filter(m => m.section === "messages" && m.owner === "mid_anchor");
-	if (ownAnchors.length > 0) return ownAnchors[0];
 	return null;
 }

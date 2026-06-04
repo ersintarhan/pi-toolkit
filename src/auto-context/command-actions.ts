@@ -21,12 +21,16 @@ import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
  * so adding more actions later stays a one-line change.
  */
 export type PendingAction =
-	| { kind: "pivot"; targetId: string; carryover: string; message?: string };
+	| { kind: "pivot"; targetId: string; carryover: string; message?: string; label?: string; expectedInjection?: string };
 
 export type PendingPivot = Extract<PendingAction, { kind: "pivot" }>;
 
 export interface RuntimeContext {
-	sendFollowUp: (msg: string) => Promise<void>;
+	sendFollowUp: (msg: string) => void | Promise<void>;
+	/** Snapshot/restore the input editor so a programmatic pivot does not leave
+	 *  the built-in /tree handler's auto-filled target text in the prompt. */
+	getEditorText?: () => string;
+	setEditorText?: (text: string) => void;
 }
 
 export interface CommandOps {
@@ -145,12 +149,31 @@ export async function runPending(
 				reportError("Pivot failed: runtime context not available");
 				return;
 			}
+			// pi's built-in /tree handler auto-fills the editor with the target
+			// entry's text when the editor is empty. For a programmatic pivot that is
+			// noise, so we clear it afterwards — but only when it holds *exactly* that
+			// injected text, so a draft the user typed during summarization is never
+			// clobbered (and unknown injection => we leave it, never guess).
+			const prevEditor = runtime.getEditorText?.();
 			try {
 				// Let navigateTree build the new branch summary so agent state stays in sync.
 				_activePivot = action;
 				const r = await _ops.navigateTree(action.targetId, { summarize: true });
-				if (r.cancelled) notify?.("Pivot cancelled", "warning");
-				else if (action.message) await runtime.sendFollowUp(action.message);
+				if (r.cancelled) {
+					notify?.("Pivot cancelled", "warning");
+				} else {
+					if (
+						runtime.getEditorText &&
+						runtime.setEditorText &&
+						action.expectedInjection &&
+						runtime.getEditorText() === action.expectedInjection &&
+						action.expectedInjection !== prevEditor
+					) {
+						runtime.setEditorText(prevEditor ?? "");
+					}
+					if (action.message) await runtime.sendFollowUp(action.message);
+					notify?.(`Pivoted to ${action.label ?? action.targetId.slice(0, 8)}`, "info");
+				}
 			} catch (e) { reportError("Pivot failed", e); }
 			finally { _activePivot = null; }
 			return;

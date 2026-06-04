@@ -260,30 +260,14 @@ export ANTHROPIC_API_KEY=...
 
 ## Changelog
 
-### 0.5.4
-- package renamed to **`@ersintarhan/pi-toolkit`**
-- CrofAI provider added
-- Claude OAuth adapter merged
-- native search merged
-- Codex / ChatGPT search backend added
-- search provider override added (including TUI selection)
-- pi-auto-context integrated
-- cache TTL upgraded to `1h`
-- status line simplified
-- skill metadata added
+- **0.5.9** — Enforce Anthropic cache-control marker budget; lower default anchor-cache budget to 3.
+- **0.5.8** — Stop copying `cache_control` onto synthetic Claude OAuth prompt block; strip foreign thinking signatures on provider switch.
+- **0.5.7** — Guard Kimi stream bootstrap; restrict native web fetch to `http`/`https`.
+- **0.5.6** — Show `toolShare=` only when tool-output share exceeds 50%.
+- **0.5.5** — Add `/context` command for context-window usage reporting.
+- **0.5.4** — Initial public release of `@ersintarhan/pi-toolkit`.
 
-### 0.5.3
-- search provider override
-- Codex backend
-
-### 0.5.2
-- native search merged
-
-### 0.5.1
-- Claude OAuth adapter merged
-
-### 0.5.0
-- CrofAI provider added
+Full details: [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
