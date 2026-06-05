@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.11
+
+### Changed
+
+- Update provider `apiKey` env-var references to the new `$ENV_VAR` format required by pi v0.78.1, removing startup deprecation warnings for Kimi, MiniMax, Xiaomi MiMo, and CrofAI registrations.
+
 ## 0.5.10
 
 ### Added

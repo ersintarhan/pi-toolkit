@@ -1010,7 +1010,7 @@ function mapCrofaiModel(m: any): any {
 export default function (pi: ExtensionAPI) {
   pi.registerProvider("kimi-coding", {
     baseUrl: getBaseUrl(),
-    apiKey: "KIMI_API_KEY",
+    apiKey: "$KIMI_API_KEY",
     api: PROTOCOL,
     streamSimple: streamSimpleKimi,
 
@@ -1038,7 +1038,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerProvider("minimax", {
     baseUrl: "https://api.minimax.io/anthropic",
-    apiKey: "MINIMAX_API_KEY",
+    apiKey: "$MINIMAX_API_KEY",
     api: "anthropic-messages",
     streamSimple: streamSimpleAnthropicCached,
     models: [
@@ -1065,7 +1065,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerProvider("xiaomi-mimo", {
     baseUrl: process.env.XIAOMI_MIMO_BASE_URL || "https://token-plan-sgp.xiaomimimo.com/anthropic",
-    apiKey: "XIAOMI_TOKEN_PLAN_API_KEY",
+    apiKey: "$XIAOMI_TOKEN_PLAN_API_KEY",
     api: "anthropic-messages",
     streamSimple: streamSimpleAnthropicCached,
     models: [
@@ -1111,7 +1111,7 @@ export default function (pi: ExtensionAPI) {
   // CrofAI — OpenAI endpoint, dynamic model list refreshed on session start
   pi.registerProvider("crofai", {
     baseUrl: CROFAI_BASE_URL,
-    apiKey: "CROFAI_API_KEY",
+    apiKey: "$CROFAI_API_KEY",
     api: "openai-completions",
     authHeader: true,
     models: crofaiModelsCache?.map(mapCrofaiModel) ?? [
@@ -1143,7 +1143,7 @@ export default function (pi: ExtensionAPI) {
       const models = raw.map(mapCrofaiModel);
       pi.registerProvider("crofai", {
         baseUrl: CROFAI_BASE_URL,
-        apiKey: "CROFAI_API_KEY",
+        apiKey: "$CROFAI_API_KEY",
         api: "openai-completions",
         authHeader: true,
         models,
