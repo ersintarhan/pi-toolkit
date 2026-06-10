@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.12
+
+### Fixed
+
+- Convert thinking blocks from a different provider into plain text when targeting Anthropic, fixing `400 Invalid signature` errors on mid-session provider switches (e.g. Kimi -> Anthropic Opus).
+
 ## 0.5.11
 
 ### Changed
