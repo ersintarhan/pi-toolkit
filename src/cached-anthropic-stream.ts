@@ -255,7 +255,7 @@ export function convertMessages(
 	isOAuth: boolean,
 	cacheControl: CacheControl,
 	tools?: Tool[],
-	options?: { keepThinkingWithoutSignature?: boolean },
+	options?: { keepThinkingWithoutSignature?: boolean; currentProvider?: string },
 ): any[] {
 	const params: any[] = [];
 
@@ -326,6 +326,22 @@ export function convertMessages(
 					blocks.push({ type: "text", text: sanitizeSurrogates(block.text) });
 
 				} else if (block.type === "thinking") {
+					const messageProvider = (msg as any).provider as string | undefined;
+					const isForeignProvider =
+						options?.currentProvider &&
+						messageProvider &&
+						messageProvider !== options.currentProvider;
+
+					// Anthropic API validates signatures on thinking blocks. Foreign
+					// signatures (e.g. from Kimi, MiMo) are always rejected with 400
+					// on provider switches (e.g. Kimi -> Anthropic). Convert to plain
+					// text to preserve the reasoning content.
+					if (isForeignProvider && options?.currentProvider === "anthropic") {
+						if (block.redacted || block.thinking.trim().length === 0) continue;
+						blocks.push({ type: "text", text: sanitizeSurrogates(block.thinking) });
+						continue;
+					}
+
 					if (options?.keepThinkingWithoutSignature) {
 						// Kimi, MiMo, and similar Anthropic-compatible providers can reuse
 						// prior thinking text but reject foreign Anthropic signatures on
@@ -615,6 +631,7 @@ export function streamSimpleAnthropicCached(
 				model: model.id,
 				messages: convertMessages(context.messages, isOAuth, cacheControl, context.tools, {
 					keepThinkingWithoutSignature,
+					currentProvider: model.provider,
 				}),
 				max_tokens: options?.maxTokens ?? Math.floor(model.maxTokens / 3),
 				stream: true,
