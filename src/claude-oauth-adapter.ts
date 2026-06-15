@@ -11,14 +11,11 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
 
 const DOCS_MARKER =
   "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
 const IDENTITY_BLOCK =
   "You are Claude Code, Anthropic's official CLI for Claude.";
-const CUSTOM_TYPE = "claude-oauth-docs-context";
 const READY_STATUS_KEY = "claude-oauth-ready";
 const ISSUE_STATUS_KEY = "claude-oauth-issue";
 const END_MARKERS = [
@@ -59,19 +56,6 @@ interface AdapterStatusState {
   reason: string;
 }
 
-type TextContentPart = TextContent;
-type ImageContentPart = ImageContent;
-type MessageContentPart = TextContentPart | ImageContentPart;
-type CustomLikeMessage = {
-  role: "custom";
-  customType: string;
-  content: string | MessageContentPart[];
-  display: boolean;
-  details?: unknown;
-  timestamp: number;
-};
-
-type UserLikeMessage = Extract<Message, { role: "user" }>;
 
 type TextBlock = {
   type: "text";
@@ -115,18 +99,6 @@ function isTextBlock(value: unknown): value is TextBlock {
   );
 }
 
-function isUserMessage(message: AgentMessage): message is UserLikeMessage {
-  return (message as Message).role === "user";
-}
-
-function isCustomLikeMessage(message: unknown): message is CustomLikeMessage {
-  return (
-    isObject(message) &&
-    message.role === "custom" &&
-    typeof message.customType === "string" &&
-    (typeof message.content === "string" || Array.isArray(message.content))
-  );
-}
 
 function getEnvMode(): ReinjectionMode {
   const value = process.env.PI_CLAUDE_OAUTH_REINJECT_MODE;
@@ -425,157 +397,6 @@ function wrapDocsContext(docsSection: string): string {
   return `<pi-docs-context>\n${docsSection}\n</pi-docs-context>`;
 }
 
-function summarizeMessages(
-  messages: AgentMessage[],
-): Array<Record<string, unknown>> {
-  return messages.slice(-4).map((message) => {
-    if (
-      isObject(message) &&
-      "role" in message &&
-      ((message as Message).role === "user" ||
-        (message as Message).role === "assistant" ||
-        (message as Message).role === "toolResult") &&
-      "content" in message
-    ) {
-      const rawContent = (message as Message).content;
-      const content = Array.isArray(rawContent)
-        ? rawContent
-            .filter(
-              (part): part is TextContentPart =>
-                isObject(part) &&
-                part.type === "text" &&
-                typeof part.text === "string",
-            )
-            .map((part) => part.text)
-            .join("\n")
-        : String(rawContent);
-      return { role: (message as Message).role, text: content.slice(0, 140) };
-    }
-
-    const customMessage = isCustomLikeMessage(message) ? message : null;
-    if (customMessage) {
-      const content =
-        typeof customMessage.content === "string"
-          ? customMessage.content
-          : customMessage.content
-              .filter((part): part is TextContentPart => part.type === "text")
-              .map((part) => part.text)
-              .join("\n");
-      return {
-        role: customMessage.role,
-        customType: customMessage.customType,
-        text: content.slice(0, 140),
-      };
-    }
-
-    return { role: (message as Message).role ?? "unknown" };
-  });
-}
-
-function prependCustomMessage(
-  messages: AgentMessage[],
-  docsSection: string,
-  timestamp: number,
-): AgentMessage[] {
-  const customMessage: CustomLikeMessage = {
-    role: "custom",
-    customType: CUSTOM_TYPE,
-    content: wrapDocsContext(docsSection),
-    display: false,
-    timestamp,
-  };
-
-  const latestUserIndex = [...messages].findLastIndex((message) =>
-    isUserMessage(message),
-  );
-  if (latestUserIndex < 0) return [...messages, customMessage as unknown as AgentMessage];
-
-  const nextMessages = [...messages];
-  nextMessages.splice(latestUserIndex, 0, customMessage as unknown as AgentMessage);
-  return nextMessages;
-}
-
-function appendCustomMessage(
-  messages: AgentMessage[],
-  docsSection: string,
-  timestamp: number,
-): AgentMessage[] {
-  const customMessage: CustomLikeMessage = {
-    role: "custom",
-    customType: CUSTOM_TYPE,
-    content: wrapDocsContext(docsSection),
-    display: false,
-    timestamp,
-  };
-
-  const latestUserIndex = [...messages].findLastIndex((message) =>
-    isUserMessage(message),
-  );
-  if (latestUserIndex < 0) return [...messages, customMessage as unknown as AgentMessage];
-
-  const nextMessages = [...messages];
-  nextMessages.splice(latestUserIndex + 1, 0, customMessage as unknown as AgentMessage);
-  return nextMessages;
-}
-
-function prependReminderToLatestUser(
-  messages: AgentMessage[],
-  docsSection: string,
-): AgentMessage[] {
-  const latestUserIndex = [...messages].findLastIndex((message) =>
-    isUserMessage(message),
-  );
-  if (latestUserIndex < 0) return messages;
-
-  const reminder = `<system-reminder>\n${docsSection}\n</system-reminder>\n\n`;
-  const nextMessages = structuredClone(messages);
-  const latestUser = nextMessages[latestUserIndex];
-  if (!isUserMessage(latestUser)) return messages;
-
-  if (typeof latestUser.content === "string") {
-    if (!latestUser.content.startsWith("<system-reminder>")) {
-      latestUser.content = `${reminder}${latestUser.content}`;
-    }
-    return nextMessages;
-  }
-
-  const firstTextIndex = latestUser.content.findIndex(
-    (part) => part.type === "text",
-  );
-  if (firstTextIndex < 0) {
-    latestUser.content.unshift({
-      type: "text",
-      text: reminder,
-    } as TextContentPart);
-    return nextMessages;
-  }
-
-  const firstText = latestUser.content[firstTextIndex];
-  if (
-    firstText.type === "text" &&
-    !firstText.text.startsWith("<system-reminder>")
-  ) {
-    latestUser.content[firstTextIndex] = {
-      ...firstText,
-      text: `${reminder}${firstText.text}`,
-    };
-  }
-  return nextMessages;
-}
-
-function injectDocs(messages: AgentMessage[], state: ActiveTurnState): AgentMessage[] {
-  if (!state.shouldInject || state.mode === "none") return messages;
-
-  switch (state.mode) {
-    case "prepend-custom-message":
-      return prependCustomMessage(messages, state.docsSection, state.timestamp);
-    case "append-custom-message":
-      return appendCustomMessage(messages, state.docsSection, state.timestamp);
-    case "user-reminder":
-      return prependReminderToLatestUser(messages, state.docsSection);
-  }
-}
-
 function cloneBlock(block: TextBlock): TextBlock {
   return block.cache_control
     ? { ...block, cache_control: { ...block.cache_control } }
@@ -694,18 +515,12 @@ export default function claudeOauthAdapter(pi: ExtensionAPI) {
     return;
   });
 
-  pi.on("context", (event, ctx) => {
-    if (!shouldApply(ctx) || !activeTurn) return;
-    const nextMessages = injectDocs(event.messages, activeTurn);
-    log("context", {
-      mode: activeTurn.mode,
-      shouldInject: activeTurn.shouldInject,
-      messagesBefore: summarizeMessages(event.messages),
-      messagesAfter: summarizeMessages(nextMessages),
-    });
-    return { messages: nextMessages };
-  });
-
+  // NOTE: docs re-injection no longer happens in the `context` event. The
+  // previous implementation spliced `{role:"custom",customType:CUSTOM_TYPE,
+  // display:false}` messages, which leaked into the input editor (same bug as
+  // pi-auto-context, see PR #5). Docs are now injected at the
+  // `before_provider_request` payload level below, where mutations are sent to
+  // the LLM but never persisted/rendered in the UI.
   pi.on("before_provider_request", (event, ctx) => {
     if (!shouldApply(ctx) || !isPayloadLike(event.payload)) return;
 
@@ -730,6 +545,41 @@ export default function claudeOauthAdapter(pi: ExtensionAPI) {
     const nextPayload = changed
       ? { ...event.payload, system: normalized.blocks }
       : event.payload;
+
+    // Re-inject the pi docs context into the payload (not the transcript).
+    // Mirrors the old context-event behavior but at the payload level, so the
+    // <pi-docs-context> block reaches the model without ever being persisted
+    // or rendered in the UI/input editor.
+    if (activeTurn && activeTurn.shouldInject && activeTurn.mode !== "none" && Array.isArray(nextPayload.messages)) {
+      const docsNote = activeTurn.mode === "user-reminder"
+        ? `<system-reminder>\n${activeTurn.docsSection}\n</system-reminder>`
+        : wrapDocsContext(activeTurn.docsSection);
+      const docsMessage = { role: "user", content: docsNote, timestamp: activeTurn.timestamp } as any;
+      if (activeTurn.mode === "prepend-custom-message") {
+        // Insert before the last user message so docs precede the prompt.
+        const msgs = nextPayload.messages as any[];
+        let lastUser = -1;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i]?.role === "user") { lastUser = i; break; }
+        }
+        if (lastUser >= 0) msgs.splice(lastUser, 0, docsMessage);
+        else (nextPayload.messages as any[]).push(docsMessage);
+      } else {
+        // append-custom-message: after the last user message (default).
+        const msgs = nextPayload.messages as any[];
+        let lastUser = -1;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i]?.role === "user") { lastUser = i; break; }
+        }
+        if (lastUser >= 0) msgs.splice(lastUser + 1, 0, docsMessage);
+        else msgs.push(docsMessage);
+      }
+      log("docs-injected", {
+        mode: activeTurn.mode,
+        docsLength: activeTurn.docsSection.length,
+        at: activeTurn.mode === "prepend-custom-message" ? "before-last-user" : "after-last-user",
+      });
+    }
 
     setAdapterStatus(ctx, {
       phase: "active",
