@@ -606,7 +606,7 @@ export function streamSimpleAnthropicCached(
 					"anthropic-beta": oauthBetaFeatures.join(","),
 					"user-agent": "claude-cli/2.1.2 (external, cli)",
 					"x-app": "cli",
-					...(model.headers ?? {}),
+					...model.headers,
 				};
 			} else {
 				clientOptions.apiKey = apiKey;
@@ -618,7 +618,7 @@ export function streamSimpleAnthropicCached(
 					accept: "application/json",
 					"anthropic-dangerous-direct-browser-access": "true",
 					"anthropic-beta": apiBetaFeatures.join(","),
-					...(model.headers ?? {}),
+					...model.headers,
 				};
 			}
 
