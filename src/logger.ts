@@ -55,9 +55,15 @@ export function createLogger(namespace: string): Logger {
   const logPath = join(getPiDir(), "logs", `${namespace}.log`);
   const mirrorToStderr = process.env.PI_DEBUG === "1" || process.env.PI_TOOLKIT_DEBUG === "1";
 
+  // Ensure the directory exists once at logger creation, not on every write.
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+  } catch {
+    // Directory creation is best-effort; write() will swallow its own errors.
+  }
+
   const write = (line: string): void => {
     try {
-      mkdirSync(dirname(logPath), { recursive: true });
       appendFileSync(logPath, `${new Date().toISOString()} ${line}\n`, "utf8");
     } catch {
       // Logging is best-effort; never surface to the UI.
@@ -72,9 +78,17 @@ export function createLogger(namespace: string): Logger {
   };
 
   const log = (event: string, details?: Record<string, unknown>): void => {
-    const payload = details && Object.keys(details).length > 0
-      ? ` ${JSON.stringify({ event, ...details })}`
-      : ` ${JSON.stringify({ event })}`;
+    // JSON.stringify can throw on circular references or BigInt values in
+    // structured detail payloads. Wrap it so logging never breaks a session
+    // (the contract documented in this module's header).
+    let payload: string;
+    try {
+      payload = details && Object.keys(details).length > 0
+        ? ` ${JSON.stringify({ event, ...details })}`
+        : ` ${JSON.stringify({ event })}`;
+    } catch {
+      payload = ` ${JSON.stringify({ event, _details: "[unserializable]" })}`;
+    }
     write(payload);
   };
 

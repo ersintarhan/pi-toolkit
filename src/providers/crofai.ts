@@ -33,8 +33,9 @@ function toNum(v: unknown): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-function mapCrofaiModel(m: Record<string, unknown>): ProviderModelConfig {
-  const pricing = (isRecord(m.pricing) ? m.pricing : {}) as Record<string, unknown>;
+function mapCrofaiModel(m: unknown): ProviderModelConfig | null {
+  if (!isRecord(m)) return null;
+  const pricing = isRecord(m.pricing) ? m.pricing : {};
   const id = typeof m.id === "string" ? m.id : "unknown";
   return {
     id,
@@ -85,7 +86,10 @@ export function registerCrofaiProvider(pi: ExtensionAPI): void {
     apiKey: "$CROFAI_API_KEY",
     api: "openai-completions",
     authHeader: true,
-    models: (crofaiModelsCache as Record<string, unknown>[] | null)?.map(mapCrofaiModel) ?? FALLBACK_MODELS,
+    models:
+      (crofaiModelsCache as unknown[] | null)
+        ?.map(mapCrofaiModel).filter((m): m is ProviderModelConfig => m !== null)
+        ?? FALLBACK_MODELS,
   });
 }
 export async function refreshCrofaiModelsIfNeeded(
@@ -100,7 +104,9 @@ export async function refreshCrofaiModelsIfNeeded(
       crofaiModelsRefreshInFlight = null;
     });
     const raw = (await crofaiModelsRefreshInFlight) as Record<string, unknown>[];
-    const models = raw.map(mapCrofaiModel);
+    const models = raw
+      .map(mapCrofaiModel)
+      .filter((m): m is ProviderModelConfig => m !== null);
     const signature = JSON.stringify(models);
     if (signature === crofaiModelsSignature) return;
     crofaiModelsSignature = signature;

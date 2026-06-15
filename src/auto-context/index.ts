@@ -152,22 +152,46 @@ export default function (pi: ExtensionAPI) {
 
 		// Tool-output share — proxy for context noise density. Only surface it when
 		// meaningfully high (>50%). Computed from the payload's LLM-format messages.
+		// Both numerator (tool output) and denominator (all content) include tool
+		// output, so the ratio is a real share in [0, 100] and never exceeds 100%.
 		let totalChars = 0;
 		let toolChars = 0;
 		for (const m of msgs as any[]) {
-			let mc = 0;
-			if (typeof m.content === "string") mc = m.content.length;
-			else if (Array.isArray(m.content)) {
-				for (const part of m.content) {
-					if (typeof part?.text === "string") mc += part.text.length;
+			const measureContent = (content: unknown): number => {
+				if (typeof content === "string") return content.length;
+				if (Array.isArray(content)) {
+					let n = 0;
+					for (const part of content) {
+						if (typeof part?.text === "string") n += part.text.length;
+						else if (part?.type === "tool_result") {
+							// tool_result content may be a string or an array of text blocks.
+							if (typeof part?.content === "string") n += part.content.length;
+							else if (Array.isArray(part?.content)) {
+								for (const b of part.content) {
+									if (typeof b?.text === "string") n += b.text.length;
+								}
+							}
+						}
+					}
+					return n;
 				}
-			}
+				return 0;
+			};
+			const mc = measureContent(m.content);
 			totalChars += mc;
 			// Anthropic tool outputs arrive as user messages with tool_result parts.
 			if (m.role === "user" && Array.isArray(m.content)) {
 				for (const part of m.content) {
 					if (part?.type === "tool_result") {
-						toolChars += typeof part?.content === "string" ? part.content.length : 0;
+						toolChars +=
+							typeof part?.content === "string"
+								? part.content.length
+								: Array.isArray(part?.content)
+									? part.content.reduce(
+											(n: number, b: any) => n + (typeof b?.text === "string" ? b.text.length : 0),
+											0,
+										)
+									: 0;
 					}
 				}
 			}
@@ -192,20 +216,33 @@ export default function (pi: ExtensionAPI) {
 		if (parts.length === 0) return;
 		const note = `[pi-auto-context] ${parts.join(" | ")}`;
 
-		// Insert as a trailing user message AFTER the last user message. Keeps the
-		// request prefix identical to the no-status baseline (prefix-cache safe) and
-		// matches previous semantics. Provider-agnostic: every provider's payload
-		// exposes a `messages` array of {role, content} entries.
-		const statusUserMsg = { role: "user", content: note, timestamp: Date.now() } as any;
-		let inserted = false;
+		// Append the status note INTO the last user message's content (rather than
+		// splicing a separate {role:"user"} message). This avoids creating
+		// consecutive same-role messages (Anthropic requires alternation) and
+		// keeps the request prefix identical to the no-status baseline
+		// (prefix-cache safe). The note is idempotent: re-appending on retries
+		// is guarded by a sentinel marker.
+		const SENTINEL = "[pi-auto-context]";
 		for (let i = msgs.length - 1; i >= 0; i--) {
-			if (msgs[i]?.role === "user") {
-				msgs.splice(i + 1, 0, statusUserMsg);
-				inserted = true;
-				break;
+			const m = msgs[i];
+			if (m?.role !== "user") continue;
+			if (typeof m.content === "string") {
+				if (!m.content.includes(SENTINEL)) m.content = `${m.content}\n\n${note}`;
+			} else if (Array.isArray(m.content)) {
+				const lastText = m.content[m.content.length - 1];
+				if (lastText?.type === "text" && !String(lastText.text ?? "").includes(SENTINEL)) {
+					lastText.text = `${lastText.text ?? ""}\n\n${note}`;
+				} else if (!m.content.some((p: any) => p?.type === "text" && String(p.text ?? "").includes(SENTINEL))) {
+					m.content.push({ type: "text", text: note });
+				}
+			} else {
+				// Unknown content shape — fall back to a trailing user message.
+				msgs.splice(i + 1, 0, { role: "user", content: note } as any);
 			}
+			return payload;
 		}
-		if (!inserted) msgs.push(statusUserMsg);
+		// No user message at all — append one.
+		msgs.push({ role: "user", content: note } as any);
 		return payload;
 	});
 

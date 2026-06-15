@@ -485,7 +485,7 @@ async function uploadKimiFile(
   formData.append("file", new Blob([buffer], { type: mimeType }), filename);
   formData.append("purpose", isVideo ? "video" : "image");
 
-  const baseUrl = process.env.KIMI_CODE_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = getBaseUrl();
   const uploadUrl = `${deriveFilesBaseUrl(baseUrl)}/files`;
   log.debug(`Uploading ${filename} to ${uploadUrl} (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
 
@@ -743,6 +743,7 @@ async function refreshKimiAuthToken(
 
 function makeErrorEvent(
   api: "anthropic-messages" | "openai-completions" = "anthropic-messages",
+  message?: string,
 ): AssistantMessageEvent & { type: "error" } {
   return {
     type: "error",
@@ -763,6 +764,7 @@ function makeErrorEvent(
       },
       stopReason: "error",
       timestamp: Date.now(),
+      errorMessage: message ?? "Kimi stream failed",
     },
   };
 }
@@ -873,7 +875,7 @@ export function streamSimpleKimi(
           }
 
           if (!shouldRetry) {
-            filtered.push(makeErrorEvent(api));
+            filtered.push(makeErrorEvent(api, err instanceof Error ? err.message : String(err)));
           }
         }
 
@@ -885,7 +887,7 @@ export function streamSimpleKimi(
       }
     } catch (err) {
       log.error("stream bootstrap failed:", err);
-      filtered.push(makeErrorEvent(api));
+      filtered.push(makeErrorEvent(api, err instanceof Error ? err.message : String(err)));
     }
   })();
 

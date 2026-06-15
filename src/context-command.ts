@@ -354,6 +354,11 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 				addAllocation(customAllocations, msg.customType ?? "custom", "customMessages", tokens.text + tokens.images);
 			} else if (msg.role === "branchSummary" || msg.role === "compactionSummary") {
 				compactionTokens += estimateStringTokens(msg.summary ?? "");
+			} else if (msg.role === "bashExecution") {
+				// pi's `!`/`!!` shell-command messages (command + output) are injected
+				// into context via bashExecutionToText, so attribute their tokens here.
+				const bash = msg as { command?: string; output?: string };
+				toolResultTokens += estimateStringTokens(`${bash.command ?? ""}\n${bash.output ?? ""}`);
 			}
 		} else if (entry.type === "compaction" || entry.type === "branch_summary") {
 			compactionTokens += estimateStringTokens(entry.summary ?? "");
@@ -423,7 +428,12 @@ function renderGrid(breakdown: ContextBreakdown, color = true): string[] {
 	const cells: string[] = [];
 	const nonFreeCategories = breakdown.categories.filter((category) => category.key !== "free");
 	const nonFreeEstimate = nonFreeCategories.reduce((sum, category) => sum + category.tokens, 0);
-	const nonFreeScale = nonFreeEstimate > breakdown.totalTokens && nonFreeEstimate > 0 ? breakdown.totalTokens / nonFreeEstimate : 1;
+	// Scale category estimates to match the real totalTokens. Previously this
+	// only scaled DOWN (when estimate > total), leaving the grid under-rendered
+	// whenever the estimate was below real usage (common — estimates miss cache
+	// overhead, framing, etc.). Now scales both ways; estimate-only path (no
+	// usage.tokens) is unaffected because there totalTokens === nonFreeEstimate.
+	const nonFreeScale = nonFreeEstimate > 0 ? breakdown.totalTokens / nonFreeEstimate : 1;
 
 	for (const category of nonFreeCategories) {
 		const scaledTokens = category.tokens * nonFreeScale;

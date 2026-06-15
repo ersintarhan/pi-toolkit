@@ -88,7 +88,7 @@ const PROVIDERS: Record<
   zai: {
     name: "ZAI (GLM)",
     nativeSearch: true,
-    nativeFetch: true,
+    nativeFetch: false,
     envKey: "ZAI_API_KEY",
   },
   google: {
@@ -387,7 +387,12 @@ async function mcpCall<T = any>(
     if (!data || data === "[DONE]") continue;
     try {
       const json = JSON.parse(data);
+      // Skip JSON-RPC notifications (progress/metadata) that have neither a
+      // matching id, nor a result/error. Without this, the first parseable
+      // block is returned even if it is not the actual result.
+      if (json.id !== undefined && json.id !== id) continue;
       if (json.error) throw new Error(`ZAI MCP: ${json.error.message}`);
+      if (json.result === undefined) continue;
       return json.result as T;
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("ZAI MCP:")) throw err;
@@ -822,7 +827,7 @@ async function httpFetch(url: string, signal?: AbortSignal): Promise<string> {
       headers,
       redirect: "manual",
     });
-    if (res.status >= 300 && res.status < 400) {
+    if (res.status >= 301 && res.status <= 308) {
       const location = res.headers.get("location");
       if (!location) throw new Error(`Redirect ${res.status} with no Location header`);
       current = new URL(location, target).toString();
@@ -860,12 +865,16 @@ async function doSearch(
   model: string,
   baseUrl: string,
   signal?: AbortSignal,
+  onUpdate?: (update: {
+    content: { type: "text"; text: string }[];
+    details: unknown;
+  }) => void,
 ): Promise<{ text: string; nativeError?: string }> {
   const apiKey = getApiKey(provider);
   const cap = PROVIDERS[provider];
-  // claude-bridge uses the `claude` CLI's own subscription auth, so it doesn't
-  // need an api_key in pi's auth.json.
-  const hasAuth = !!apiKey || provider === "claude-bridge";
+  // claude-bridge uses the `claude` CLI's own subscription auth and codex uses
+  // ~/.codex/auth.json, so neither needs an api_key in pi's auth.json.
+  const hasAuth = !!apiKey || provider === "claude-bridge" || provider === "codex";
   if (cap?.nativeSearch && hasAuth) {
     try {
       switch (provider) {
@@ -886,7 +895,7 @@ async function doSearch(
         case "codex": {
           const result = await executeCodexSearch(
             { query, maxSources: 8, freshness: "cached" },
-            { signal },
+            { signal, onUpdate },
           );
           return { text: result.content[0].text };
         }
@@ -1007,6 +1016,7 @@ export default function searchExtension(pi: ExtensionAPI) {
           model,
           baseUrl,
           signal,
+          onUpdate,
         );
         const out = nativeError
           ? `> Native failed (${nativeError.slice(0, 80)}), used DuckDuckGo.\n\n${text}`

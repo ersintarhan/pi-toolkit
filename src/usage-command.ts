@@ -16,7 +16,7 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
-import { type Focusable, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
+import { type Focusable, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 // Hard cap on every outbound usage fetch so a slow/dead provider endpoint can
 // never hang the /usage command indefinitely. Mirrors codex-search's pattern.
@@ -361,10 +361,11 @@ async function fetchCrofaiUsage(): Promise<UsagePanelData> {
 
   // Pay-as-you-go → credit balance (shown even on subscription as a secondary line)
   if (body.credits != null) {
+    const credits = Number(body.credits);
     rows.push({
       type: "kv",
       key: "Credits",
-      value: `$${body.credits.toFixed(4)}`,
+      value: Number.isFinite(credits) ? `$${credits.toFixed(4)}` : "—",
     });
   }
 
@@ -441,6 +442,7 @@ class UsagePanelComponent implements Focusable {
 
     const pad = (s: string, len: number) => {
       const vis = visibleWidth(s);
+      if (vis > len) return truncateToWidth(s, len);
       return s + " ".repeat(Math.max(0, len - vis));
     };
     const row = (content: string) =>

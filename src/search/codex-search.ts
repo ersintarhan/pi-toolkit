@@ -149,7 +149,10 @@ export async function executeCodexSearch(
   const auth = await getCodexAuth();
 
   const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), SEARCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => abortController.abort(new Error(`Codex search timed out after ${SEARCH_TIMEOUT_MS / 1000}s`)),
+    SEARCH_TIMEOUT_MS,
+  );
   const parentSignal = options?.signal;
   const onParentAbort = () => abortController.abort(parentSignal?.reason);
   parentSignal?.addEventListener("abort", onParentAbort, { once: true });
@@ -184,6 +187,17 @@ export async function executeCodexSearch(
 
     let rawOutput = "";
     for await (const event of iterateSSE(response.body)) {
+      // Surface terminal failure events with their real cause instead of
+      // masking them as "Empty response" or a JSON parse error later.
+      if (
+        event.type === "response.failed" ||
+        event.type === "response.error" ||
+        event.type === "response.incomplete"
+      ) {
+        const data = (event.data as any) ?? {};
+        const msg = data?.error?.message ?? data?.reason ?? event.type;
+        throw new Error(`Codex response failed: ${msg}`);
+      }
       if (event.type === "response.output_text.delta") {
         const delta = (event.data.delta as string) ?? "";
         rawOutput += delta;
@@ -198,7 +212,16 @@ export async function executeCodexSearch(
 
     if (!rawOutput) throw new Error("Empty response from API.");
 
-    const parsed = JSON.parse(rawOutput) as { summary?: string; sources?: CodexSearchSource[] };
+    // Models sometimes wrap JSON in markdown fences or add prose preamble,
+    // which would make JSON.parse throw a cryptic SyntaxError. Strip fences
+    // and surface a helpful message on failure.
+    const cleaned = rawOutput.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    let parsed: { summary?: string; sources?: CodexSearchSource[] };
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error(`Codex returned non-JSON output (first 200 chars): ${cleaned.slice(0, 200)}`);
+    }
     if (!parsed.sources || !Array.isArray(parsed.sources)) {
       throw new Error(`Invalid API response: ${rawOutput.slice(0, 200)}`);
     }

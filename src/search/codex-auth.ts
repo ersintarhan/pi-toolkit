@@ -21,6 +21,8 @@ interface CodexAuthFile {
     access_token: string;
     refresh_token?: string;
     account_id: string;
+    /** Optional expiry (ms epoch) emitted by some codex CLI versions. */
+    expires_at?: number;
   };
 }
 
@@ -37,6 +39,14 @@ export async function getCodexAuth(): Promise<{ accessToken: string; accountId: 
     if (!auth.tokens?.account_id) {
       throw new AuthError(
         "No account ID found in Codex auth file. Please run `codex login` to authenticate."
+      );
+    }
+    // If the auth file carries an expiry, fail early instead of round-tripping
+    // to the API for a 401. (Older codex CLI builds omit this field; in that
+    // case the API's 401 path in codex-search.ts still handles expiry.)
+    if (typeof auth.tokens.expires_at === "number" && Date.now() >= auth.tokens.expires_at) {
+      throw new AuthError(
+        "Codex access token has expired. Please run `codex login` to re-authenticate."
       );
     }
     cachedHasCodexAuth = true;

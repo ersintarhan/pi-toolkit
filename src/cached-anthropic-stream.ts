@@ -271,10 +271,14 @@ export function convertMessages(
 			const toolCalls = (msg.content as any[]).filter((b) => b.type === "toolCall");
 			if (toolCalls.length > 0) {
 				const next = messages[i + 1];
+				// Following message provides at least one tool_result: assume the caller
+				// is supplying real results for the tool_calls we were about to synthesize.
+				// `.some` (not `.every`) tolerates mixed content (tool_result + text),
+				// which otherwise would yield duplicate tool_use_id and an Anthropic 400.
 				const nextIsToolResults =
 					next?.role === "toolResult" ||
 					(next?.role === "user" && Array.isArray(next.content) &&
-						(next.content as any[]).every((b) => b.type === "tool_result"));
+						(next.content as any[]).some((b) => b.type === "tool_result"));
 				if (!nextIsToolResults) {
 					const synthetics: Message[] = toolCalls.map((tc) => ({
 						role: "toolResult" as const,
@@ -627,7 +631,7 @@ export function streamSimpleAnthropicCached(
 			const keepThinkingWithoutSignature =
 				model.provider === "xiaomi-mimo" || model.provider === "kimi-coding";
 
-			const params = {
+			let params = {
 				model: model.id,
 				messages: convertMessages(context.messages, isOAuth, cacheControl, {
 					keepThinkingWithoutSignature,
@@ -685,9 +689,11 @@ export function streamSimpleAnthropicCached(
 
 			// Fire onPayload AFTER cache markers + thinking are applied so callers
 			// (e.g. Kimi's applyKimiPayloadMutations) see the final payload and can
-			// mutate it in place (image upload, prompt_cache_key injection, etc.).
-			// Return value is intentionally ignored to match pi-ai's behaviour.
-			await options?.onPayload?.(params as any, model as any);
+			// mutate it in place (image upload, prompt_cache_key injection, etc.)
+			// or return a replacement. Like pi-ai's built-in providers, honor a
+			// returned object by swapping params (anthropic.js / openai-responses.js).
+			const nextParams = await options?.onPayload?.(params as any, model as any);
+			if (nextParams !== undefined) params = nextParams as typeof params;
 
 			// Raw HTTP + custom SSE parser instead of SDK stream().
 			const httpResponse = await (client.messages.create as any)(
@@ -827,12 +833,14 @@ export function streamSimpleAnthropicCached(
 					if ((event.delta as any).stop_reason) {
 						output.stopReason = mapStopReason((event.delta as any).stop_reason);
 					}
-					output.usage.input = (event.usage as any).input_tokens ?? output.usage.input;
-					output.usage.output = (event.usage as any).output_tokens ?? output.usage.output;
+					// Proxies may omit usage on message_delta; guard against that.
+					const u = (event as any).usage ?? {};
+					output.usage.input = u.input_tokens ?? output.usage.input;
+					output.usage.output = u.output_tokens ?? output.usage.output;
 					output.usage.cacheRead =
-						(event.usage as any).cache_read_input_tokens ?? output.usage.cacheRead;
+						u.cache_read_input_tokens ?? output.usage.cacheRead;
 					output.usage.cacheWrite =
-						(event.usage as any).cache_creation_input_tokens ?? output.usage.cacheWrite;
+						u.cache_creation_input_tokens ?? output.usage.cacheWrite;
 					output.usage.totalTokens =
 						output.usage.input +
 						output.usage.output +

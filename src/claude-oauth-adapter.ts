@@ -596,21 +596,54 @@ export default function claudeOauthAdapter(pi: ExtensionAPI) {
           msgs.push(docsMessage);
         }
       } else {
-        // prepend-custom-message / append-custom-message: a separate
-        // {role:"user"} message carrying the <pi-docs-context> block.
-        const docsMessage = {
-          role: "user",
-          content: wrapDocsContext(activeTurn.docsSection),
-          timestamp: activeTurn.timestamp,
-        } as any;
-        if (activeTurn.mode === "prepend-custom-message") {
-          // Before the last user message so docs precede the prompt.
-          if (lastUser >= 0) msgs.splice(lastUser, 0, docsMessage);
-          else msgs.push(docsMessage);
+        // prepend/append-custom-message: merge the <pi-docs-context> block into
+        // the last user message's content (like user-reminder) instead of
+        // splicing a standalone {role:"user"} message. This avoids creating
+        // consecutive same-role messages (Anthropic requires alternation).
+        // prepend places the docs before the user's prompt; append places it
+        // after. Both operate on text/string content; unknown shapes fall back
+        // to a separate trailing user message.
+        const docsText = wrapDocsContext(activeTurn.docsSection);
+        const target = lastUser >= 0 ? msgs[lastUser] : null;
+        const prepend = activeTurn.mode === "prepend-custom-message";
+        if (target) {
+          if (typeof target.content === "string") {
+            target.content = prepend
+              ? `${docsText}\n\n${target.content}`
+              : `${target.content}\n\n${docsText}`;
+          } else if (Array.isArray(target.content)) {
+            const firstText = target.content.findIndex(
+              (part: any) => part?.type === "text",
+            );
+            if (prepend) {
+              if (firstText < 0) target.content.unshift({ type: "text", text: docsText });
+              else
+                target.content[firstText] = {
+                  ...target.content[firstText],
+                  text: `${docsText}\n\n${target.content[firstText].text ?? ""}`,
+                };
+            } else {
+              const lastText =
+                target.content[target.content.length - 1]?.type === "text"
+                  ? target.content.length - 1
+                  : -1;
+              if (lastText >= 0)
+                target.content[lastText] = {
+                  ...target.content[lastText],
+                  text: `${target.content[lastText].text ?? ""}\n\n${docsText}`,
+                };
+              else target.content.push({ type: "text", text: docsText });
+            }
+          } else {
+            // Unknown content shape — fall back to a separate trailing user msg.
+            msgs.splice(lastUser >= 0 ? lastUser + 1 : msgs.length, 0, {
+              role: "user",
+              content: docsText,
+              timestamp: activeTurn.timestamp,
+            } as any);
+          }
         } else {
-          // append-custom-message: after the last user message (default).
-          if (lastUser >= 0) msgs.splice(lastUser + 1, 0, docsMessage);
-          else msgs.push(docsMessage);
+          msgs.push({ role: "user", content: docsText, timestamp: activeTurn.timestamp } as any);
         }
       }
       log("docs-injected", {
@@ -620,8 +653,8 @@ export default function claudeOauthAdapter(pi: ExtensionAPI) {
           activeTurn.mode === "user-reminder"
             ? "merged-into-last-user"
             : activeTurn.mode === "prepend-custom-message"
-              ? "before-last-user"
-              : "after-last-user",
+              ? "merged-before-prompt"
+              : "merged-after-prompt",
       });
     }
 

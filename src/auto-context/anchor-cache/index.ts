@@ -90,12 +90,12 @@ function resolveAnchorTTL(): "5m" | "1h" {
 
 function resolveAnchorMarkerBudget(): number {
 	const raw = process.env.PI_ANCHOR_CACHE_MARKER_BUDGET;
-	// Safe default: leave one slot free for any downstream/request-finalizer
-	// mutation we do not control. Anthropic hard-fails at 5 markers, and real
-	// runtime payloads can still pick up one extra marker after our hook.
-	if (!raw) return 3;
+	// Default 4: matches the documented layout [system, tools, LAST_ANCHOR,
+	// last_tool_use]. Anthropic hard-fails at 5 markers, so 4 leaves the
+	// collaborator's rolling marker intact rather than evicting it.
+	if (!raw) return 4;
 	const parsed = Number.parseInt(raw, 10);
-	if (!Number.isFinite(parsed)) return 3;
+	if (!Number.isFinite(parsed)) return 4;
 	return Math.max(1, Math.min(4, parsed));
 }
 

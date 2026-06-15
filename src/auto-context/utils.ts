@@ -19,7 +19,9 @@ function listSessionFiles(): Array<{ file: string; mtime: number }> {
 		let stat: fs.Stats;
 		try { stat = fs.statSync(subdirPath); } catch { continue; }
 		if (!stat.isDirectory()) continue;
-		for (const file of fs.readdirSync(subdirPath)) {
+		let files: string[];
+		try { files = fs.readdirSync(subdirPath); } catch { continue; }
+		for (const file of files) {
 			if (!file.endsWith(".jsonl")) continue;
 			const fullPath = path.join(subdirPath, file);
 			try {
