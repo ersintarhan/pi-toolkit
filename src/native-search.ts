@@ -1475,14 +1475,15 @@ export default function searchExtension(pi: ExtensionAPI) {
       cap?.nativeFetch && hasCredentials(p ?? "") && p === "claude-bridge"
         ? "cc-sdk"
         : "http";
+    // Compact footer status. Must NOT start with "[" — powerline-footer treats
+    // "["-prefixed status values as notifications and renders them ABOVE the
+    // editor (cluttering the input area) instead of in the footer segment.
     const parts: string[] = [];
-    if (config.searchEnabled) parts.push(`search:${backend}`);
-    if (config.fetchEnabled) parts.push(`fetch:${fetchBackend}`);
+    if (config.searchEnabled) parts.push(`search ${backend}`);
+    if (config.fetchEnabled) parts.push(`fetch ${fetchBackend}`);
     ctx.ui.setStatus(
       "search",
-      parts.length
-        ? ctx.ui.theme.fg("accent", `search[${parts.join(",")}]`)
-        : undefined,
+      parts.length ? ctx.ui.theme.fg("accent", parts.join(" · ")) : undefined,
     );
   }
 
