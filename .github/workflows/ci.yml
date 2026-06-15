@@ -17,7 +17,6 @@ jobs:
 
       - name: Typecheck
         run: bunx tsc --noEmit
-        continue-on-error: true
 
       - name: Lint
         run: bunx oxlint src/ index.ts
