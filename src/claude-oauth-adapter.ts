@@ -551,33 +551,77 @@ export default function claudeOauthAdapter(pi: ExtensionAPI) {
     // <pi-docs-context> block reaches the model without ever being persisted
     // or rendered in the UI/input editor.
     if (activeTurn && activeTurn.shouldInject && activeTurn.mode !== "none" && Array.isArray(nextPayload.messages)) {
-      const docsNote = activeTurn.mode === "user-reminder"
-        ? `<system-reminder>\n${activeTurn.docsSection}\n</system-reminder>`
-        : wrapDocsContext(activeTurn.docsSection);
-      const docsMessage = { role: "user", content: docsNote, timestamp: activeTurn.timestamp } as any;
-      if (activeTurn.mode === "prepend-custom-message") {
-        // Insert before the last user message so docs precede the prompt.
-        const msgs = nextPayload.messages as any[];
-        let lastUser = -1;
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i]?.role === "user") { lastUser = i; break; }
+      const msgs = nextPayload.messages as any[];
+      // Index of the last user message in the LLM-format payload.
+      let lastUser = -1;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i]?.role === "user") { lastUser = i; break; }
+      }
+
+      if (activeTurn.mode === "user-reminder") {
+        // Prepend the reminder INTO the last user message's content, matching
+        // the original prependReminderToLatestUser semantics. The reminder wraps
+        // in <system-reminder>…</system-reminder> followed by the user's text.
+        const reminder = `<system-reminder>\n${activeTurn.docsSection}\n</system-reminder>\n\n`;
+        const target = lastUser >= 0 ? msgs[lastUser] : null;
+        const docsMessage = {
+          role: "user",
+          content: `${reminder}`,
+          timestamp: activeTurn.timestamp,
+        } as any;
+        if (target) {
+          if (typeof target.content === "string") {
+            if (!target.content.startsWith("<system-reminder>")) {
+              target.content = `${reminder}${target.content}`;
+            }
+          } else if (Array.isArray(target.content)) {
+            const firstText = target.content.findIndex(
+              (part: any) => part?.type === "text",
+            );
+            if (firstText < 0) {
+              target.content.unshift({ type: "text", text: reminder });
+            } else if (
+              !String(target.content[firstText].text ?? "").startsWith("<system-reminder>")
+            ) {
+              target.content[firstText] = {
+                ...target.content[firstText],
+                text: `${reminder}${target.content[firstText].text ?? ""}`,
+              };
+            }
+          } else {
+            // Unknown content shape — fall back to a separate trailing user msg.
+            msgs.splice(lastUser >= 0 ? lastUser + 1 : msgs.length, 0, docsMessage);
+          }
+        } else {
+          msgs.push(docsMessage);
         }
-        if (lastUser >= 0) msgs.splice(lastUser, 0, docsMessage);
-        else (nextPayload.messages as any[]).push(docsMessage);
       } else {
-        // append-custom-message: after the last user message (default).
-        const msgs = nextPayload.messages as any[];
-        let lastUser = -1;
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i]?.role === "user") { lastUser = i; break; }
+        // prepend-custom-message / append-custom-message: a separate
+        // {role:"user"} message carrying the <pi-docs-context> block.
+        const docsMessage = {
+          role: "user",
+          content: wrapDocsContext(activeTurn.docsSection),
+          timestamp: activeTurn.timestamp,
+        } as any;
+        if (activeTurn.mode === "prepend-custom-message") {
+          // Before the last user message so docs precede the prompt.
+          if (lastUser >= 0) msgs.splice(lastUser, 0, docsMessage);
+          else msgs.push(docsMessage);
+        } else {
+          // append-custom-message: after the last user message (default).
+          if (lastUser >= 0) msgs.splice(lastUser + 1, 0, docsMessage);
+          else msgs.push(docsMessage);
         }
-        if (lastUser >= 0) msgs.splice(lastUser + 1, 0, docsMessage);
-        else msgs.push(docsMessage);
       }
       log("docs-injected", {
         mode: activeTurn.mode,
         docsLength: activeTurn.docsSection.length,
-        at: activeTurn.mode === "prepend-custom-message" ? "before-last-user" : "after-last-user",
+        at:
+          activeTurn.mode === "user-reminder"
+            ? "merged-into-last-user"
+            : activeTurn.mode === "prepend-custom-message"
+              ? "before-last-user"
+              : "after-last-user",
       });
     }
 

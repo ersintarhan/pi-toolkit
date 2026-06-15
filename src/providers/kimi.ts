@@ -741,14 +741,16 @@ async function refreshKimiAuthToken(
 // Stream wrapper
 // =============================================================================
 
-function makeErrorEvent(): AssistantMessageEvent & { type: "error" } {
+function makeErrorEvent(
+  api: "anthropic-messages" | "openai-completions" = "anthropic-messages",
+): AssistantMessageEvent & { type: "error" } {
   return {
     type: "error",
     reason: "error",
     error: {
       role: "assistant",
       content: [],
-      api: "anthropic-messages",
+      api,
       provider: PROVIDER_ID,
       model: "",
       usage: {
@@ -871,7 +873,7 @@ export function streamSimpleKimi(
           }
 
           if (!shouldRetry) {
-            filtered.push(makeErrorEvent());
+            filtered.push(makeErrorEvent(api));
           }
         }
 
@@ -883,7 +885,7 @@ export function streamSimpleKimi(
       }
     } catch (err) {
       log.error("stream bootstrap failed:", err);
-      filtered.push(makeErrorEvent());
+      filtered.push(makeErrorEvent(api));
     }
   })();
 
