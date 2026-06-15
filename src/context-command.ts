@@ -479,61 +479,6 @@ function pushExtensionAllocations(lines: string[], allocations: ExtensionAllocat
 	}
 }
 
-function buildOverlay(breakdown: ContextBreakdown, theme: Theme, width: number): string[] {
-	const maxWidth = Math.max(56, Math.min(width, 110));
-	const gridLines = renderGrid(breakdown);
-	const leftWidth = Math.max(...gridLines.map((line) => visibleWidth(line)));
-	const gap = "   ";
-	const legendCategories = breakdown.categories.filter((category) => category.tokens > 0);
-
-	const rightLines = [
-		breakdown.modelLabel,
-		breakdown.modelId,
-		`${formatTokens(breakdown.totalTokens)}/${formatTokens(breakdown.contextWindow)} tokens (${breakdown.percent?.toFixed(0) ?? "?"}%)`,
-		"",
-		"Estimated usage by category",
-		...legendCategories.map((category) => formatLegendEntry(category, breakdown, theme)),
-	];
-
-	const lines: string[] = [theme.bold("Context Usage")];
-	const pairCount = Math.max(gridLines.length, rightLines.length);
-	for (let i = 0; i < pairCount; i++) {
-		const left = gridLines[i] ? `     ${padVisible(gridLines[i]!, leftWidth)}` : `     ${" ".repeat(leftWidth)}`;
-		const right = rightLines[i] ?? "";
-		lines.push(truncateToWidth(`${left}${gap}${right}`, maxWidth));
-	}
-
-	lines.push("");
-	lines.push(`     Session Stats · Turns ${breakdown.turnCount} · Messages ${breakdown.messageCount} · Cache R ${formatTokens(breakdown.cacheRead)} · Cache W ${formatTokens(breakdown.cacheWrite)} · Cost $${breakdown.totalCost.toFixed(4)}`);
-
-	if (breakdown.percent !== null && breakdown.percent >= 95) {
-		lines.push(theme.fg("error", "     Near context limit — compaction strongly recommended"));
-	} else if (breakdown.percent !== null && breakdown.percent >= 80) {
-		lines.push(theme.fg("warning", "     Context usage above 80% — consider /compact"));
-	}
-	pushExtensionAllocations(lines, breakdown.extensionAllocations, breakdown.contextWindow);
-	for (const section of breakdown.detailSections) {
-		lines.push("");
-		lines.push(`     ${section.title}`);
-		if (section.subtitle) {
-			lines.push("");
-			lines.push(`     ${section.subtitle}`);
-		}
-		for (const group of section.groups) {
-			if (group.title) {
-				lines.push("");
-				lines.push(`     ${group.title}`);
-			}
-			pushTreeItems(lines, group.items);
-		}
-	}
-
-	lines.push("");
-	lines.push(theme.fg("dim", "     Press Escape, q, or Enter to close"));
-
-	return lines.map((line) => truncateToWidth(line, maxWidth));
-}
-
 function colorizeContextReport(report: string, theme: Theme): string {
 	return report
 		.split("\n")

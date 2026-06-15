@@ -18,6 +18,7 @@ import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
   AssistantMessageEvent,
+  Api,
   CacheRetention,
   Context,
   Model,
@@ -799,11 +800,40 @@ async function refreshKimiAuthToken(
 // thing this function itself "does" is wire SDK streaming + filter + error
 // fallback; the actual logic lives in the pure units above.
 
+/** Build a well-typed stream `error` event for terminal failures. */
+function makeErrorEvent(): AssistantMessageEvent & { type: "error" } {
+  return {
+    type: "error",
+    reason: "error",
+    error: {
+      role: "assistant",
+      content: [],
+      api: "anthropic-messages",
+      provider: PROVIDER_ID,
+      model: "",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "error",
+      timestamp: Date.now(),
+    },
+  };
+}
+
 function streamSimpleKimi(
-  model: Model<"anthropic-messages" | "openai-completions">,
+  model: Model<Api>,
   context: Context,
   options?: SimpleStreamOptions,
 ) {
+  // Kimi supports both Anthropic-Messages and OpenAI-Completions APIs. The
+  // provider protocol is fixed at registration time (PROTOCOL constant), but
+  // registerProvider types streamSimple as Model<Api>, so we narrow here.
+  const api = (model.api === "openai-completions" ? "openai-completions" : "anthropic-messages") as "anthropic-messages" | "openai-completions";
   const filtered = createAssistantMessageEventStream();
   const initialKey = options?.apiKey || process.env.KIMI_API_KEY || "";
 
@@ -827,7 +857,7 @@ function streamSimpleKimi(
 
         if (isRecord(nextPayload)) {
           await applyKimiPayloadMutations(nextPayload, {
-            api: model.api,
+            api,
             upload,
             cacheKey,
             cacheRetention,
@@ -854,7 +884,7 @@ function streamSimpleKimi(
       while (true) {
         const patchedOptions = buildPatchedOptions(currentKey);
         const upstream =
-          model.api === "openai-completions"
+          api === "openai-completions"
             ? streamSimpleOpenAICompletions(
                 model as Model<"openai-completions">,
                 context,
@@ -921,15 +951,7 @@ function streamSimpleKimi(
           }
 
           if (!shouldRetry) {
-            filtered.push({
-              type: "error",
-              reason: "error",
-              error: {
-                content: [],
-                stopReason: "error",
-                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
-              },
-            } as AssistantMessageEvent & { type: "error" });
+            filtered.push(makeErrorEvent());
           }
         }
 
@@ -941,15 +963,7 @@ function streamSimpleKimi(
       }
     } catch (err) {
       console.error("[kimi-coding] stream bootstrap failed:", err);
-      filtered.push({
-        type: "error",
-        reason: "error",
-        error: {
-          content: [],
-          stopReason: "error",
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
-        },
-      } as AssistantMessageEvent & { type: "error" });
+      filtered.push(makeErrorEvent());
     }
   })();
 

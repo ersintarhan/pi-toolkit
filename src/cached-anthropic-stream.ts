@@ -254,7 +254,6 @@ export function convertMessages(
 	messages: Message[],
 	isOAuth: boolean,
 	cacheControl: CacheControl,
-	tools?: Tool[],
 	options?: { keepThinkingWithoutSignature?: boolean; currentProvider?: string },
 ): any[] {
 	const params: any[] = [];
@@ -629,7 +628,7 @@ export function streamSimpleAnthropicCached(
 
 			const params = {
 				model: model.id,
-				messages: convertMessages(context.messages, isOAuth, cacheControl, context.tools, {
+				messages: convertMessages(context.messages, isOAuth, cacheControl, {
 					keepThinkingWithoutSignature,
 					currentProvider: model.provider,
 				}),
