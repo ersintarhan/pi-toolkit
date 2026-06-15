@@ -43,6 +43,9 @@
  * Set PI_ANCHOR_CACHE_DEBUG=1 to log chosen layout per request.
  */
 
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	isAnthropicPayload,
@@ -96,6 +99,31 @@ function resolveAnchorMarkerBudget(): number {
 	return Math.max(1, Math.min(4, parsed));
 }
 
+/**
+ * Debug logger for anchor-cache layout diagnostics.
+ *
+ * Writes to ~/.pi/agent/logs/anchor-cache-debug.log ONLY when
+ * PI_ANCHOR_CACHE_DEBUG is set. Never uses console.* — pi surfaces console
+ * output to the transcript/editor area, which clutters the UI and conflicts
+ * with powerline-footer's input-area notification rendering. To inspect,
+ * set PI_ANCHOR_CACHE_DEBUG=1 and `tail -f` the log file.
+ *
+ * Accepts either a string or a lazy thunk so the expensive layout summary
+ * (listMarkers/countMarkersRaw) is only computed when debug is actually on.
+ */
+function debugLog(lineOrThunk: string | (() => string)): void {
+	if (!process.env.PI_ANCHOR_CACHE_DEBUG) return;
+	try {
+		const piDir = process.env.PI_HOME ?? join(homedir(), ".pi", "agent");
+		const logsDir = join(piDir, "logs");
+		mkdirSync(logsDir, { recursive: true });
+		const line = typeof lineOrThunk === "function" ? lineOrThunk() : lineOrThunk;
+		appendFileSync(join(logsDir, "anchor-cache-debug.log"), `${new Date().toISOString()} ${line}\n`);
+	} catch {
+		// Debug logging is best-effort; never surface to UI.
+	}
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.on("before_provider_request", async (event, ctx) => {
 		const payload = event.payload as unknown;
@@ -116,22 +144,18 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (!lastAnchorToolCallId) {
 			const droppedByLimit = enforceMarkerLimit(payload, markerBudget);
-			if (process.env.PI_ANCHOR_CACHE_DEBUG) {
-				console.error(
-					`[anchor-cache] no on-branch anchors — enforced budget=${markerBudget} dropped-by-limit=${droppedByLimit} raw=${countMarkersRaw(payload)}`,
-				);
-			}
+			debugLog(
+				`[anchor-cache] no on-branch anchors — enforced budget=${markerBudget} dropped-by-limit=${droppedByLimit} raw=${countMarkersRaw(payload)}`,
+			);
 			return event.payload;
 		}
 
 		const anchorLoc = findToolResultBlock(payload, lastAnchorToolCallId);
 		if (!anchorLoc) {
 			const droppedByLimit = enforceMarkerLimit(payload, markerBudget);
-			if (process.env.PI_ANCHOR_CACHE_DEBUG) {
-				console.error(
-					`[anchor-cache] anchor ${lastAnchorToolCallId} not in payload — enforced budget=${markerBudget} dropped-by-limit=${droppedByLimit} raw=${countMarkersRaw(payload)}`,
-				);
-			}
+			debugLog(
+				`[anchor-cache] anchor ${lastAnchorToolCallId} not in payload — enforced budget=${markerBudget} dropped-by-limit=${droppedByLimit} raw=${countMarkersRaw(payload)}`,
+			);
 			return event.payload;
 		}
 
@@ -168,7 +192,7 @@ export default function (pi: ExtensionAPI) {
 		// PI_ANCHOR_CACHE_MARKER_BUDGET=4 once the runtime is proven stable.
 		const droppedByLimit = enforceMarkerLimit(payload, markerBudget);
 
-		if (process.env.PI_ANCHOR_CACHE_DEBUG) {
+		debugLog(() => {
 			const finalMarkers = listMarkers(payload).map(m =>
 				`${m.section}#${m.idx}${m.blockIdx !== undefined ? `[${m.blockIdx}]` : ""}` +
 				`${m.owner ? `=${m.owner}` : ""}` +
@@ -176,12 +200,10 @@ export default function (pi: ExtensionAPI) {
 			);
 			const rawCount = countMarkersRaw(payload);
 			const mismatch = rawCount !== finalMarkers.length ? ` ⚠️ MISMATCH raw=${rawCount} listed=${finalMarkers.length}` : "";
-			console.error(
-				`[anchor-cache] ttl=${anchorTTL} anchor=msg${anchorLoc.msgIdx}[${anchorLoc.blockIdx}] ` +
+			return `[anchor-cache] ttl=${anchorTTL} anchor=msg${anchorLoc.msgIdx}[${anchorLoc.blockIdx}] ` +
 				`dropped-pre=${droppedPreAnchor} dropped-by-limit=${droppedByLimit} raw=${rawCount}${mismatch} ` +
-				`final=[${finalMarkers.join(", ")}]`
-			);
-		}
+				`final=[${finalMarkers.join(", ")}]`;
+		});
 
 		return event.payload;
 	});

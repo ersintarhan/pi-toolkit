@@ -30,10 +30,53 @@ export default function (pi: ExtensionAPI) {
 	// No-ops on non-Anthropic providers; idempotent w.r.t. pi-better-messages-cache.
 	registerAnchorCache(pi);
 
-	// ── Context event: truncate old tool results + status line + anchor reminder ──
+	// ── Context event: truncate old tool results + footer status ──
 	// Receives AgentMessage[]. Anchors are toolResults with toolName=="context" and details.anchor.
+	// NOTE: This handler must NOT inject a visible status message into the transcript.
+	// Previously it spliced a `{role:"custom",customType:"pi-status",display:false}` message after
+	// the last user message. That message leaked into the input editor area (visible to the
+	// user despite display:false) — bad UX and conflicts with powerline-footer. The model-facing
+	// status line is now injected at the provider-payload level in `before_provider_request` below,
+	// where mutations are sent to the LLM but NEVER persisted/rendered in the UI.
 	let anchorReminderSent = false;
 	let pendingRunTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/**
+	 * Build the context/anchor status parts shared by the footer (human) and the
+	 * model-facing payload note. Pure so it can run from any event with a ctx.
+	 */
+	function buildStatusParts(ctx: any): {
+		parts: string[];
+		latestAnchorName?: string;
+		latestAnchorDistance: number;
+	} {
+		const parts: string[] = [];
+		let latestAnchorName: string | undefined;
+		let latestAnchorDistance = 0;
+
+		const usage = ctx.getContextUsage?.();
+		if (usage && typeof usage.percent === "number") {
+			const pct = Math.min(100, Math.round(usage.percent));
+			parts.push(`context=${pct}%`);
+		}
+
+		// Only consider anchors on the current branch so status reflects where the
+		// agent actually is, not orphaned anchors from abandoned branches.
+		const branchEntries = ctx.sessionManager?.getBranch?.() ?? [];
+		const anchors = branchEntries.filter(isAnchorEntry);
+		if (anchors.length > 0) {
+			const latestAnchor = anchors[anchors.length - 1];
+			latestAnchorName = anchorNameOf(latestAnchor);
+			if (latestAnchorName) {
+				const latestIdx = branchEntries.indexOf(latestAnchor);
+				latestAnchorDistance = latestIdx >= 0 ? branchEntries.length - 1 - latestIdx : 0;
+				parts.push(`anchor=${latestAnchorName} (-${latestAnchorDistance})`);
+			}
+		}
+
+		return { parts, latestAnchorName, latestAnchorDistance };
+	}
+
 	pi.on("context", async (event, ctx) => {
 		const messages = event.messages;
 		if (!messages || messages.length === 0) return;
@@ -69,109 +112,98 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		// Insert status as a standalone message AFTER the last user message.
-		// Rationale: putting pi-status at the tail keeps the request prefix identical
-		// to the no-status baseline, so prefix cache hits are preserved across turns.
+		// Human-facing footer status. Uses pi's status bar (alongside git branch /
+		// other extensions), never the transcript or input editor. The model-facing
+		// status is injected separately in `before_provider_request`.
 		const currentModel = ctx.model;
-		if (currentModel) {
+		if (currentModel && ctx.hasUI) {
+			const { latestAnchorName, latestAnchorDistance } = buildStatusParts(ctx);
 			const usage = ctx.getContextUsage?.();
-			const parts: string[] = [];
+			const footerBits: string[] = [];
 			if (usage && typeof usage.percent === "number") {
-				// 1% precision; pi-status sits after the last user message and other
-				// fields change each turn, so rounding gains nothing.
-				const pct = Math.min(100, Math.round(usage.percent));
-				parts.push(`context=${pct}%`);
+				footerBits.push(`ctx ${Math.min(100, Math.round(usage.percent))}%`);
 			}
-
-			// Tool-output share — proxy for context noise density. Only surface it
-			// when the share is meaningfully high (>50%) so the status line does not
-			// imply compaction pressure during normal runs.
-			let totalChars = 0;
-			let toolChars = 0;
-			for (const m of messages as any[]) {
-				let mc = 0;
-				if (typeof m.content === "string") mc = m.content.length;
-				else if (Array.isArray(m.content)) {
-					for (const part of m.content) {
-						if (typeof part?.text === "string") mc += part.text.length;
-						else if (typeof part?.content === "string") mc += part.content.length;
-					}
-				}
-				totalChars += mc;
-				if (m.role === "toolResult") toolChars += mc;
+			if (latestAnchorName) {
+				footerBits.push(
+					`anchor:${latestAnchorName}${latestAnchorDistance > 0 ? ` -${latestAnchorDistance}` : ""}`,
+				);
 			}
-			if (totalChars > 0) {
-				const toolPct = Math.round((toolChars / totalChars) * 100);
-				if (toolPct > 50) parts.push(`toolShare=${toolPct}%`);
-			}
-
-			// Anchor info — only consider anchors on the current branch so status
-			// reflects where the agent actually is, not orphaned anchors from abandoned branches.
-			const branchEntries = ctx.sessionManager?.getBranch?.() ?? [];
-			const anchors = branchEntries.filter(isAnchorEntry);
-			let latestAnchorName: string | undefined;
-			let latestAnchorDistance = 0;
-			if (anchors.length > 0) {
-				const latestAnchor = anchors[anchors.length - 1];
-				latestAnchorName = anchorNameOf(latestAnchor);
-				if (latestAnchorName) {
-					// Distance to the most recent anchor, measured in branch entries.
-					// Long distance (e.g. -15) reminds the agent to checkpoint progress
-					// rather than risk a long un-anchored chain that's hard to pivot back to.
-					const latestIdx = branchEntries.indexOf(latestAnchor);
-					latestAnchorDistance = latestIdx >= 0 ? branchEntries.length - 1 - latestIdx : 0;
-					parts.push(`anchor=${latestAnchorName} (-${latestAnchorDistance})`);
-				}
-			}
-
-			// Anchor reminder — only once per session
-			if (!anchorReminderSent) {
-				if (anchors.length > 0) {
-					anchorReminderSent = true;
-				} else if (branchEntries.length > 10) {
-					parts.push(`hint=no-anchors-yet`);
-					anchorReminderSent = true;
-				}
-			}
-
-			// Human-facing footer mirror of the model status line. Uses pi's status
-			// bar (alongside git branch / other extensions), never the transcript
-			// or input editor.
-			if (ctx.hasUI) {
-				const footerBits: string[] = [];
-				if (usage && typeof usage.percent === "number") {
-					footerBits.push(`ctx ${Math.min(100, Math.round(usage.percent))}%`);
-				}
-				if (latestAnchorName) {
-					footerBits.push(
-						`anchor:${latestAnchorName}${latestAnchorDistance > 0 ? ` -${latestAnchorDistance}` : ""}`,
-					);
-				}
-				ctx.ui.setStatus("auto-context", footerBits.length ? footerBits.join(" · ") : undefined);
-			}
-
-			const statusMsg = {
-				role: "custom",
-				customType: "pi-status",
-				content: `[pi-auto-context] ${parts.join(" | ")}`,
-				display: false,
-				timestamp: Date.now(),
-			} as any;
-
-			// Find last user message and insert AFTER it.
-			let inserted = false;
-			for (let i = messages.length - 1; i >= 0; i--) {
-				if ((messages[i] as any).role === "user") {
-					messages.splice(i + 1, 0, statusMsg);
-					inserted = true;
-					break;
-				}
-			}
-			if (!inserted) messages.push(statusMsg);
-			modified = true;
+			ctx.ui.setStatus("auto-context", footerBits.length ? footerBits.join(" · ") : undefined);
 		}
 
 		if (modified) return { messages };
+	});
+
+	// ── before_provider_request: inject a HIDDEN model-facing status line ──
+	// Runs at the provider-payload level. Mutations here are sent to the LLM but
+	// NEVER persisted to the transcript or rendered in the UI, so the user never
+	// sees `[pi-auto-context] ...`. This replaces the old context-event splice
+	// (custom pi-status message) which leaked into the input editor.
+	pi.on("before_provider_request", async (event, ctx) => {
+		if (!ctx.model) return;
+		const payload = event.payload as any;
+		const msgs = payload?.messages;
+		if (!Array.isArray(msgs) || msgs.length === 0) return;
+
+		const { parts } = buildStatusParts(ctx);
+
+		// Tool-output share — proxy for context noise density. Only surface it when
+		// meaningfully high (>50%). Computed from the payload's LLM-format messages.
+		let totalChars = 0;
+		let toolChars = 0;
+		for (const m of msgs as any[]) {
+			let mc = 0;
+			if (typeof m.content === "string") mc = m.content.length;
+			else if (Array.isArray(m.content)) {
+				for (const part of m.content) {
+					if (typeof part?.text === "string") mc += part.text.length;
+				}
+			}
+			totalChars += mc;
+			// Anthropic tool outputs arrive as user messages with tool_result parts.
+			if (m.role === "user" && Array.isArray(m.content)) {
+				for (const part of m.content) {
+					if (part?.type === "tool_result") {
+						toolChars += typeof part?.content === "string" ? part.content.length : 0;
+					}
+				}
+			}
+		}
+		if (totalChars > 0) {
+			const toolPct = Math.round((toolChars / totalChars) * 100);
+			if (toolPct > 50) parts.push(`toolShare=${toolPct}%`);
+		}
+
+		// Anchor reminder — only once per session (once-only state lives in closure).
+		if (!anchorReminderSent) {
+			const branchEntries = ctx.sessionManager?.getBranch?.() ?? [];
+			const anchors = branchEntries.filter(isAnchorEntry);
+			if (anchors.length > 0) {
+				anchorReminderSent = true;
+			} else if (branchEntries.length > 10) {
+				parts.push(`hint=no-anchors-yet`);
+				anchorReminderSent = true;
+			}
+		}
+
+		if (parts.length === 0) return;
+		const note = `[pi-auto-context] ${parts.join(" | ")}`;
+
+		// Insert as a trailing user message AFTER the last user message. Keeps the
+		// request prefix identical to the no-status baseline (prefix-cache safe) and
+		// matches previous semantics. Provider-agnostic: every provider's payload
+		// exposes a `messages` array of {role, content} entries.
+		const statusUserMsg = { role: "user", content: note, timestamp: Date.now() } as any;
+		let inserted = false;
+		for (let i = msgs.length - 1; i >= 0; i--) {
+			if (msgs[i]?.role === "user") {
+				msgs.splice(i + 1, 0, statusUserMsg);
+				inserted = true;
+				break;
+			}
+		}
+		if (!inserted) msgs.push(statusUserMsg);
+		return payload;
 	});
 
 	pi.on("session_before_tree", async (event) => {
