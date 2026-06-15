@@ -976,6 +976,7 @@ const CROFAI_MODELS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 let crofaiModelsCache: any[] | null = null;
 let crofaiModelsLastFetch = 0;
 let crofaiModelsRefreshInFlight: Promise<any[]> | null = null;
+let crofaiModelsSignature: string | null = null;
 
 async function refreshCrofaiModels(apiKey: string): Promise<any[]> {
   const res = await fetch(`${CROFAI_BASE_URL}/models`, {
@@ -1151,6 +1152,12 @@ export default function (pi: ExtensionAPI) {
       });
       const raw = await crofaiModelsRefreshInFlight;
       const models = raw.map(mapCrofaiModel);
+      // Only re-register when the model list actually changed, to avoid
+      // clobbering provider state (active model, user selection) on every
+      // session_start when the stale-while-revalidate cache still holds.
+      const signature = JSON.stringify(models);
+      if (signature === crofaiModelsSignature) return;
+      crofaiModelsSignature = signature;
       pi.registerProvider("crofai", {
         baseUrl: CROFAI_BASE_URL,
         apiKey: "$CROFAI_API_KEY",

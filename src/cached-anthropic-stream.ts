@@ -576,7 +576,8 @@ export function streamSimpleAnthropicCached(
 		try {
 			const apiKey = options?.apiKey ?? "";
 			const isOAuth = isOAuthToken(apiKey);
-			const cacheControl: CacheControl = { type: "ephemeral", ttl: resolveCacheTTL() };
+			const ttl = resolveCacheTTL();
+			const cacheControl: CacheControl = { type: "ephemeral", ttl };
 
 			const betaFeatures = [
 				"fine-grained-tool-streaming-2025-05-14",
@@ -596,7 +597,7 @@ export function streamSimpleAnthropicCached(
 					"oauth-2025-04-20",
 					...betaFeatures,
 				];
-				if (resolveCacheTTL() === "1h") {
+				if (ttl === "1h") {
 					oauthBetaFeatures.push("prompt-caching-2024-07-31");
 				}
 				clientOptions.defaultHeaders = {
@@ -610,7 +611,7 @@ export function streamSimpleAnthropicCached(
 			} else {
 				clientOptions.apiKey = apiKey;
 				const apiBetaFeatures = [...betaFeatures];
-				if (resolveCacheTTL() === "1h") {
+				if (ttl === "1h") {
 					apiBetaFeatures.push("prompt-caching-2024-07-31");
 				}
 				clientOptions.defaultHeaders = {
