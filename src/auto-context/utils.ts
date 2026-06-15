@@ -105,7 +105,23 @@ interface CachedSessionAnchors {
 	anchors: CachedAnchorEntry[];
 }
 
+// Bounded LRU-ish cache. JS Map iterates in insertion order, so to bound
+// memory we evict the oldest entry whenever we exceed the cap. A typical
+// session has O(10) anchors and a user rarely scans >hundreds of sessions,
+// so 256 is a safe cap that keeps recall fast without unbounded growth.
+const ANCHOR_CACHE_MAX_SESSIONS = 256;
 const _anchorCache = new Map<string, CachedSessionAnchors>();
+
+function cacheSessionAnchors(file: string, result: CachedSessionAnchors): void {
+	// Move-to-end so recently-touched files survive eviction (LRU).
+	_anchorCache.delete(file);
+	_anchorCache.set(file, result);
+	while (_anchorCache.size > ANCHOR_CACHE_MAX_SESSIONS) {
+		const oldest = _anchorCache.keys().next().value;
+		if (oldest === undefined) break;
+		_anchorCache.delete(oldest);
+	}
+}
 
 function loadSessionAnchors(file: string, mtime: number): CachedSessionAnchors {
 	const cached = _anchorCache.get(file);
@@ -115,7 +131,7 @@ function loadSessionAnchors(file: string, mtime: number): CachedSessionAnchors {
 	try { raw = fs.readFileSync(file, "utf-8"); }
 	catch {
 		const empty: CachedSessionAnchors = { mtime, anchors: [] };
-		_anchorCache.set(file, empty);
+		cacheSessionAnchors(file, empty);
 		return empty;
 	}
 
@@ -154,6 +170,6 @@ function loadSessionAnchors(file: string, mtime: number): CachedSessionAnchors {
 		cwd: header?.cwd,
 		anchors,
 	};
-	_anchorCache.set(file, result);
+	cacheSessionAnchors(file, result);
 	return result;
 }
