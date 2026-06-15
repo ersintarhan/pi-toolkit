@@ -41,6 +41,9 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { hasCodexAuth, refreshCodexAuthStatus } from "./search/codex-auth.js";
 import { executeCodexSearch } from "./search/codex-search.js";
 import { assertPublicUrl } from "./search/ssrf.js";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("native-search");
 
 interface SearchConfig {
   enabled: boolean;
@@ -388,7 +391,7 @@ async function mcpCall<T = any>(
       return json.result as T;
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("ZAI MCP:")) throw err;
-      console.error("[native-search] ignoring malformed MCP SSE data", err);
+      log.warn("ignoring malformed MCP SSE data", err);
     }
   }
   throw new Error("ZAI MCP: no valid data in response");

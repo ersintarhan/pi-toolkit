@@ -11,6 +11,9 @@
  */
 
 import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
+import { createLogger } from "../logger.js";
+
+const log = createLogger("pi-auto-context");
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -139,8 +142,8 @@ export async function runPending(
 			notify(error === undefined ? message : `${message}: ${error}`, "error");
 			return;
 		}
-		if (error === undefined) console.error(`[pi-auto-context] ${message}`);
-		else console.error(`[pi-auto-context] ${message}:`, error);
+		if (error === undefined) log.error(message);
+		else log.error(`${message}:`, error);
 	};
 
 	switch (action.kind) {

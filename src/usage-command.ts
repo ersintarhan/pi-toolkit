@@ -533,6 +533,8 @@ export function registerUsageCommand(pi: ExtensionAPI): void {
         return;
       }
 
+      // Intentional stdout: in RPC/headless mode there is no TUI to render to,
+      // so plain text on stdout is the documented output channel.
       if (!ctx.hasUI) {
         console.log(renderUsagePlain(data));
         return;

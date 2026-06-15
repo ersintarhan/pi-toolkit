@@ -37,6 +37,11 @@ import { registerContextCommand } from "./src/context-command.js";
 import claudeOauthAdapter from "./src/claude-oauth-adapter.js";
 import nativeSearchExtension from "./src/native-search.js";
 import autoContextExtension from "./src/auto-context/index.js";
+import { createLogger } from "./src/logger.js";
+
+// Module loggers — file-based so diagnostics never leak to the transcript/editor.
+const kimiLog = createLogger("kimi-coding");
+const crofaiLog = createLogger("crofai");
 
 // =============================================================================
 // Constants
@@ -448,7 +453,7 @@ function readFiniteEnvNumber(name: string): number | undefined {
   if (!raw) return undefined;
   const value = Number.parseFloat(raw);
   if (Number.isFinite(value)) return value;
-  console.error(`[kimi-coding] ignoring invalid numeric env ${name}=${JSON.stringify(raw)}`);
+  kimiLog.warn(`ignoring invalid numeric env ${name}=${JSON.stringify(raw)}`);
   return undefined;
 }
 
@@ -457,7 +462,7 @@ function readPositiveIntEnv(name: string): number | undefined {
   if (!raw) return undefined;
   const value = Number.parseInt(raw, 10);
   if (Number.isFinite(value) && value > 0) return value;
-  console.error(`[kimi-coding] ignoring invalid integer env ${name}=${JSON.stringify(raw)}`);
+  kimiLog.warn(`ignoring invalid integer env ${name}=${JSON.stringify(raw)}`);
   return undefined;
 }
 
@@ -493,12 +498,7 @@ async function uploadKimiFile(
 
   const baseUrl = process.env.KIMI_CODE_BASE_URL || DEFAULT_BASE_URL;
   const uploadUrl = `${deriveFilesBaseUrl(baseUrl)}/files`;
-  const debug = process.env.KIMI_CODE_DEBUG === "1";
-  if (debug) {
-    console.log(
-      `\n[kimi-coding] Uploading ${filename} to ${uploadUrl} (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`,
-    );
-  }
+  kimiLog.debug(`Uploading ${filename} to ${uploadUrl} (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
 
   try {
     const response = await fetch(uploadUrl, {
@@ -510,10 +510,10 @@ async function uploadKimiFile(
     const fileObj = (await response.json()) as { id?: string };
     if (!fileObj.id) throw new Error("missing file id");
     const fileUrl = `ms://${fileObj.id}`;
-    if (debug) console.log(`[kimi-coding] Upload success: ${fileUrl}`);
+    kimiLog.debug(`Upload success: ${fileUrl}`);
     return fileUrl;
   } catch (err) {
-    console.error("[kimi-coding] Upload failed:", err);
+    kimiLog.error("Upload failed:", err);
     return null;
   }
 }
@@ -756,9 +756,7 @@ async function refreshKimiAuthToken(
     const storage = AuthStorage.create();
     const cred = storage.get(PROVIDER_ID);
     if (!cred || cred.type !== "oauth") {
-      console.error(
-        `[kimi-coding] auth refresh skipped: no OAuth credentials for ${PROVIDER_ID} on disk`,
-      );
+      kimiLog.warn(`auth refresh skipped: no OAuth credentials for ${PROVIDER_ID} on disk`);
       return null;
     }
 
@@ -767,14 +765,14 @@ async function refreshKimiAuthToken(
     // stale), try it once without hitting the OAuth endpoint. If that token
     // also fails, the retry loop calls us again with forceNetworkRefresh=true.
     if (!opts.forceNetworkRefresh && cred.access !== currentKey && Date.now() < cred.expires) {
-      console.error("[kimi-coding] auth refresh: trying newer on-disk token");
+      kimiLog.info("auth refresh: trying newer on-disk token");
       return cred.access;
     }
 
-    console.error(
+    kimiLog.info(
       opts.forceNetworkRefresh
-        ? "[kimi-coding] auth refresh: forcing network refresh"
-        : "[kimi-coding] auth refresh: requesting new access token",
+        ? "auth refresh: forcing network refresh"
+        : "auth refresh: requesting new access token",
     );
     const refreshed = await refreshAccessToken(cred.refresh);
     const newCred: OAuthCredential = {
@@ -784,10 +782,10 @@ async function refreshKimiAuthToken(
       expires: Date.now() + refreshed.expires_in * 1000,
     };
     storage.set(PROVIDER_ID, newCred);
-    console.error("[kimi-coding] auth refresh: new token persisted");
+    kimiLog.info("auth refresh: new token persisted");
     return newCred.access;
   } catch (err) {
-    console.error("[kimi-coding] auth refresh failed:", err);
+    kimiLog.error("auth refresh failed:", err);
     return null;
   }
 }
@@ -912,27 +910,25 @@ function streamSimpleKimi(
             // same way and we forward it — pi-coding-agent's own recovery
             // paths (compaction, retry) take over from there.
             if (!pushedAny && attempt < 2 && event.type === "error") {
-              console.error(
-                `[kimi-coding] upstream error on first event, attempting refresh: ${event.error?.errorMessage?.slice(0, 200)}`,
+              kimiLog.warn(
+                `upstream error on first event, attempting refresh: ${event.error?.errorMessage?.slice(0, 200)}`,
               );
               const refreshed = await refreshKimiAuthToken(currentKey, {
                 forceNetworkRefresh: attempt > 0,
               });
               if (refreshed && refreshed !== currentKey) {
-                console.error("[kimi-coding] retrying stream with refreshed token");
+                kimiLog.info("retrying stream with refreshed token");
                 currentKey = refreshed;
                 shouldRetry = true;
                 break;
               }
-              console.error(
-                "[kimi-coding] refresh did not yield a new token, forwarding original error",
-              );
+              kimiLog.warn("refresh did not yield a new token, forwarding original error");
             }
             filtered.push(event);
             pushedAny = true;
           }
         } catch (err) {
-          console.error("[kimi-coding] stream error:", err);
+          kimiLog.error("stream error:", err);
 
           // Some failures surface as thrown stream exceptions instead of
           // Anthropic-style `error` events. If the stream failed before any
@@ -944,7 +940,7 @@ function streamSimpleKimi(
               forceNetworkRefresh: attempt > 0,
             });
             if (refreshed && refreshed !== currentKey) {
-              console.error("[kimi-coding] retrying thrown stream error with refreshed token");
+              kimiLog.info("retrying thrown stream error with refreshed token");
               currentKey = refreshed;
               shouldRetry = true;
             }
@@ -962,7 +958,7 @@ function streamSimpleKimi(
         break;
       }
     } catch (err) {
-      console.error("[kimi-coding] stream bootstrap failed:", err);
+      kimiLog.error("stream bootstrap failed:", err);
       filtered.push(makeErrorEvent());
     }
   })();
@@ -1163,7 +1159,7 @@ export default function (pi: ExtensionAPI) {
         models,
       });
     } catch (err) {
-      console.error("[crofai] model refresh failed:", err);
+      crofaiLog.error("model refresh failed:", err);
       // Stale or fallback models are fine.
     }
   });

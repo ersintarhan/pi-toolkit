@@ -19,6 +19,9 @@ import { patchBindCommandContext, runPending, clearPending, isArmed, hasPending,
 import { isAnchorEntry, isAnchorToolResult, anchorNameOf } from "./context/anchors.js";
 import { registerContextRouter } from "./context/router.js";
 import registerAnchorCache from "./anchor-cache/index.js";
+import { createLogger } from "../logger.js";
+
+const log = createLogger("pi-auto-context");
 
 export default function (pi: ExtensionAPI) {
 	// Patch ExtensionRunner to auto-capture command context actions.
@@ -243,7 +246,7 @@ export default function (pi: ExtensionAPI) {
 			if (!hasPending()) return;
 			runPending(notify, runtime).catch((e) => {
 				if (notify) notify(`pi-auto-context runPending error: ${e}`, "error");
-				else console.error("[pi-auto-context] runPending error:", e);
+				else log.error("runPending error:", e);
 			});
 		}, 0);
 	});
