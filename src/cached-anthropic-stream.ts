@@ -133,7 +133,8 @@ export async function* iterateSseMessages(
 		buffer += decoder.decode(value, { stream: true });
 		const lines = buffer.split("\n");
 		buffer = lines.pop() ?? "";
-		for (const line of lines) {
+		for (const rawLine of lines) {
+			const line = rawLine.replace(/\r$/, "");
 			state.raw.push(line);
 			if (line === "") {
 				const ev = flush();
@@ -637,7 +638,7 @@ export function streamSimpleAnthropicCached(
 					keepThinkingWithoutSignature,
 					currentProvider: model.provider,
 				}),
-				max_tokens: options?.maxTokens ?? Math.floor(model.maxTokens / 3),
+				max_tokens: options?.maxTokens ?? Math.floor((model.maxTokens ?? 24576) / 3),
 				stream: true,
 			} as MessageCreateParamsStreaming & Record<string, any>;
 

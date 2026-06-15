@@ -118,7 +118,9 @@ function getEnvScope(): ReinjectionScope {
   if (value === "never" || value === "always" || value === "pi-only") {
     return value;
   }
-  return "never"; // docs re-injection disabled by default
+  return "never"; // docs re-injection disabled by default: docs are stripped
+  // from the system prompt on every turn (saves tokens + a cache breakpoint)
+  // and only re-injected when the user opts in via PI_CLAUDE_OAUTH_REINJECT_SCOPE.
 }
 
 function getClaudeCodeVersion(): string {
@@ -435,6 +437,8 @@ function normalizeSystemBlocks(
   const nextBlocks: TextBlock[] = [];
 
   for (const block of blocks) {
+    // Drop the Claude Code self-identity block (pi is not Claude Code); the
+    // billing header that actually routes OAuth requests is preserved below.
     if (block.text === IDENTITY_BLOCK) {
       continue;
     }

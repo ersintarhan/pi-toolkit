@@ -854,7 +854,7 @@ async function httpFetch(url: string, signal?: AbortSignal): Promise<string> {
       (t.truncated ? `\n\n[Truncated: ${t.outputLines}/${t.totalLines} lines]` : "")
     );
   }
-  throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
+  throw new Error(`Too many redirects (max ${MAX_REDIRECTS} hops)`);
 }
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────

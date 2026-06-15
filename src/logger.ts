@@ -33,7 +33,11 @@ function getPiDir(): string {
 function sanitize(value: unknown): string {
   if (value === undefined) return "";
   if (typeof value === "string") return value;
-  if (value instanceof Error) return value.stack ?? `${value.name}: ${value.message}`;
+  if (value instanceof Error) {
+    // Collapse embedded newlines so one logical entry stays on one log line
+    // (the file is documented as newline-delimited for machine parsing).
+    return (value.stack ?? `${value.name}: ${value.message}`).replace(/\n/g, "\\n");
+  }
   try {
     return JSON.stringify(value);
   } catch {

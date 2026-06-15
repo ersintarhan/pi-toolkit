@@ -400,6 +400,8 @@ function resolveCacheRetention(value?: CacheRetention): CacheRetention {
 
 function mapThinkingLevel(level?: string): { effort: string | null; enabled: boolean } | undefined {
   if (!level) return undefined;
+  // "none"/"off" are defensive — ThinkingLevel type doesn't include them today,
+  // but env overrides or future pi versions could pass them, so disable thinking.
   if (level === "none" || level === "off") return { effort: null, enabled: false };
   if (level === "minimal" || level === "low") return { effort: "low", enabled: true };
   if (level === "medium") return { effort: "medium", enabled: true };
@@ -640,6 +642,11 @@ async function applyKimiPayloadMutations(
 // Event stream filter: suppress Kimi "(Empty response: ...)" text blocks
 // =============================================================================
 
+// Buffer each text block until text_end so we can detect the full
+// "(Empty response: ...)" prefix, then flush as a burst. This delays the
+// first-token latency for a block until the block finishes; acceptable for
+// Kimi since text blocks are typically short, and necessary to suppress the
+// spurious empty-response artifacts Kimi emits.
 async function* filterEmptyResponseStream(
   upstream: AsyncIterable<AssistantMessageEvent>,
 ): AsyncIterable<AssistantMessageEvent> {

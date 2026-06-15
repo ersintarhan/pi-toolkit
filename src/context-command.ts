@@ -213,7 +213,14 @@ function buildToolSections(pi: ExtensionAPI): { systemToolsTokens: number; detai
 	const activeTools = allTools.filter((tool) => active.has(tool.name));
 	const allocationsByExtension = new Map<string, ExtensionAllocation>();
 	const systemToolsTokens = activeTools.reduce((sum, tool) => {
-		const tokens = estimateStringTokens(`${tool.name}\n${tool.description ?? ""}\n${JSON.stringify(tool.parameters ?? {})}`);
+		const schemaText = (() => {
+			try {
+				return JSON.stringify(tool.parameters ?? {});
+			} catch {
+				return "{}";
+			}
+		})();
+		const tokens = estimateStringTokens(`${tool.name}\n${tool.description ?? ""}\n${schemaText}`);
 		addAllocation(allocationsByExtension, sourceAllocationName(tool), "tools", tokens);
 		return sum + tokens;
 	}, 0);
@@ -305,6 +312,9 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 	let toolResultTokens = 0;
 	let customTokens = 0;
 	let compactionTokens = 0;
+	// Guard against double-counting a compaction summary that appears both as a
+	// message-role entry and as a session-entry (pi internal shapes vary).
+	const compactionSeen = new Set<string | number>();
 	let imageTokens = 0;
 	let cacheRead = 0;
 	let cacheWrite = 0;
@@ -354,13 +364,17 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 				addAllocation(customAllocations, msg.customType ?? "custom", "customMessages", tokens.text + tokens.images);
 			} else if (msg.role === "branchSummary" || msg.role === "compactionSummary") {
 				compactionTokens += estimateStringTokens(msg.summary ?? "");
+				compactionSeen.add(msg.summary ?? "");
 			} else if (msg.role === "bashExecution") {
 				// pi's `!`/`!!` shell-command messages (command + output) are injected
 				// into context via bashExecutionToText, so attribute their tokens here.
 				const bash = msg as { command?: string; output?: string };
 				toolResultTokens += estimateStringTokens(`${bash.command ?? ""}\n${bash.output ?? ""}`);
 			}
-		} else if (entry.type === "compaction" || entry.type === "branch_summary") {
+		} else if (
+			(entry.type === "compaction" || entry.type === "branch_summary") &&
+			!compactionSeen.has(entry.summary ?? "")
+		) {
 			compactionTokens += estimateStringTokens(entry.summary ?? "");
 		} else if (entry.type === "custom_message") {
 			if (entry.customType === CUSTOM_TYPE) continue;

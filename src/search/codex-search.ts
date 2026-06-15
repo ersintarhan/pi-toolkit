@@ -73,24 +73,29 @@ interface SSEEvent {
 }
 
 function parseSSEBlock(block: string): SSEEvent | null {
-  let event = "";
+  let event: string | null = null;
   const dataLines: string[] = [];
 
   for (const rawLine of block.split("\n")) {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    if (line.startsWith("event: ")) {
-      event = line.slice(7);
-    } else if (line.startsWith("data: ")) {
-      dataLines.push(line.slice(6));
+    // SSE spec: field value is everything after the colon, optionally stripping
+    // one leading space. `data:{...}` (no space) is valid; tolerate both.
+    if (line.startsWith("event:")) {
+      event = line.slice(6).replace(/^ /, "") || null;
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).replace(/^ /, ""));
     }
   }
 
-  if (!event || dataLines.length === 0) return null;
+  // Per SSE spec, an event without an `event:` field defaults to type "message".
+  // Only require data; an empty data block is meaningless.
+  const effectiveEvent = event ?? "message";
+  if (dataLines.length === 0) return null;
   const dataText = dataLines.join("\n");
   if (dataText === "[DONE]") return null;
 
   try {
-    return { type: event, data: JSON.parse(dataText) };
+    return { type: effectiveEvent, data: JSON.parse(dataText) };
   } catch {
     return null;
   }

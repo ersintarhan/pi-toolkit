@@ -40,7 +40,12 @@ function mapCrofaiModel(m: unknown): ProviderModelConfig | null {
   return {
     id,
     name: typeof m.name === "string" ? m.name : id,
-    reasoning: m.custom_reasoning === true || m.reasoning_effort === true,
+    // Tolerate boolean true OR a string/numeric reasoning-effort value.
+    reasoning:
+      m.custom_reasoning === true ||
+      m.reasoning_effort === true ||
+      (typeof m.reasoning_effort === "string" && m.reasoning_effort !== "none") ||
+      typeof m.reasoning_effort === "number",
     input: ["text"],
     cost: {
       input: toNum(pricing.prompt),
@@ -56,6 +61,8 @@ function mapCrofaiModel(m: unknown): ProviderModelConfig | null {
 async function refreshCrofaiModels(apiKey: string): Promise<unknown[]> {
   const res = await fetch(`${CROFAI_BASE_URL}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
+    // Bound the refresh so a slow/hanging endpoint can't stall session_start.
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
     throw new Error(`CrofAI models HTTP ${res.status}`);
