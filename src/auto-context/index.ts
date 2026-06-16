@@ -236,8 +236,15 @@ export default function (pi: ExtensionAPI) {
 					m.content.push({ type: "text", text: note });
 				}
 			} else {
-				// Unknown content shape — fall back to a trailing user message.
-				msgs.splice(i + 1, 0, { role: "user", content: note } as any);
+				// Unknown content shape — normalize the message to an array of text
+				// parts and append the note INTO it. Splicing a standalone
+				// {role:"user"} message here would create consecutive same-role
+				// messages (the very thing this branch's siblings avoid), which
+				// Anthropic rejects with a 400.
+				const existing = m.content == null ? "" : String(m.content);
+				m.content = existing
+					? [{ type: "text", text: existing }, { type: "text", text: note }]
+					: [{ type: "text", text: note }];
 			}
 			return payload;
 		}
