@@ -213,7 +213,14 @@ function buildToolSections(pi: ExtensionAPI): { systemToolsTokens: number; detai
 	const activeTools = allTools.filter((tool) => active.has(tool.name));
 	const allocationsByExtension = new Map<string, ExtensionAllocation>();
 	const systemToolsTokens = activeTools.reduce((sum, tool) => {
-		const tokens = estimateStringTokens(`${tool.name}\n${tool.description ?? ""}\n${JSON.stringify(tool.parameters ?? {})}`);
+		const schemaText = (() => {
+			try {
+				return JSON.stringify(tool.parameters ?? {});
+			} catch {
+				return "{}";
+			}
+		})();
+		const tokens = estimateStringTokens(`${tool.name}\n${tool.description ?? ""}\n${schemaText}`);
 		addAllocation(allocationsByExtension, sourceAllocationName(tool), "tools", tokens);
 		return sum + tokens;
 	}, 0);
@@ -305,6 +312,9 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 	let toolResultTokens = 0;
 	let customTokens = 0;
 	let compactionTokens = 0;
+	// Guard against double-counting a compaction summary that appears both as a
+	// message-role entry and as a session-entry (pi internal shapes vary).
+	const compactionSeen = new Set<string | number>();
 	let imageTokens = 0;
 	let cacheRead = 0;
 	let cacheWrite = 0;
@@ -354,8 +364,17 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 				addAllocation(customAllocations, msg.customType ?? "custom", "customMessages", tokens.text + tokens.images);
 			} else if (msg.role === "branchSummary" || msg.role === "compactionSummary") {
 				compactionTokens += estimateStringTokens(msg.summary ?? "");
+				compactionSeen.add(msg.summary ?? "");
+			} else if (msg.role === "bashExecution") {
+				// pi's `!`/`!!` shell-command messages (command + output) are injected
+				// into context via bashExecutionToText, so attribute their tokens here.
+				const bash = msg as { command?: string; output?: string };
+				toolResultTokens += estimateStringTokens(`${bash.command ?? ""}\n${bash.output ?? ""}`);
 			}
-		} else if (entry.type === "compaction" || entry.type === "branch_summary") {
+		} else if (
+			(entry.type === "compaction" || entry.type === "branch_summary") &&
+			!compactionSeen.has(entry.summary ?? "")
+		) {
 			compactionTokens += estimateStringTokens(entry.summary ?? "");
 		} else if (entry.type === "custom_message") {
 			if (entry.customType === CUSTOM_TYPE) continue;
@@ -423,7 +442,12 @@ function renderGrid(breakdown: ContextBreakdown, color = true): string[] {
 	const cells: string[] = [];
 	const nonFreeCategories = breakdown.categories.filter((category) => category.key !== "free");
 	const nonFreeEstimate = nonFreeCategories.reduce((sum, category) => sum + category.tokens, 0);
-	const nonFreeScale = nonFreeEstimate > breakdown.totalTokens && nonFreeEstimate > 0 ? breakdown.totalTokens / nonFreeEstimate : 1;
+	// Scale category estimates to match the real totalTokens. Previously this
+	// only scaled DOWN (when estimate > total), leaving the grid under-rendered
+	// whenever the estimate was below real usage (common — estimates miss cache
+	// overhead, framing, etc.). Now scales both ways; estimate-only path (no
+	// usage.tokens) is unaffected because there totalTokens === nonFreeEstimate.
+	const nonFreeScale = nonFreeEstimate > 0 ? breakdown.totalTokens / nonFreeEstimate : 1;
 
 	for (const category of nonFreeCategories) {
 		const scaledTokens = category.tokens * nonFreeScale;
@@ -477,61 +501,6 @@ function pushExtensionAllocations(lines: string[], allocations: ExtensionAllocat
 	if (allocations.length > MAX_DETAIL_ITEMS) {
 		lines.push(`     └ … ${allocations.length - MAX_DETAIL_ITEMS} more extensions`);
 	}
-}
-
-function buildOverlay(breakdown: ContextBreakdown, theme: Theme, width: number): string[] {
-	const maxWidth = Math.max(56, Math.min(width, 110));
-	const gridLines = renderGrid(breakdown);
-	const leftWidth = Math.max(...gridLines.map((line) => visibleWidth(line)));
-	const gap = "   ";
-	const legendCategories = breakdown.categories.filter((category) => category.tokens > 0);
-
-	const rightLines = [
-		breakdown.modelLabel,
-		breakdown.modelId,
-		`${formatTokens(breakdown.totalTokens)}/${formatTokens(breakdown.contextWindow)} tokens (${breakdown.percent?.toFixed(0) ?? "?"}%)`,
-		"",
-		"Estimated usage by category",
-		...legendCategories.map((category) => formatLegendEntry(category, breakdown, theme)),
-	];
-
-	const lines: string[] = [theme.bold("Context Usage")];
-	const pairCount = Math.max(gridLines.length, rightLines.length);
-	for (let i = 0; i < pairCount; i++) {
-		const left = gridLines[i] ? `     ${padVisible(gridLines[i]!, leftWidth)}` : `     ${" ".repeat(leftWidth)}`;
-		const right = rightLines[i] ?? "";
-		lines.push(truncateToWidth(`${left}${gap}${right}`, maxWidth));
-	}
-
-	lines.push("");
-	lines.push(`     Session Stats · Turns ${breakdown.turnCount} · Messages ${breakdown.messageCount} · Cache R ${formatTokens(breakdown.cacheRead)} · Cache W ${formatTokens(breakdown.cacheWrite)} · Cost $${breakdown.totalCost.toFixed(4)}`);
-
-	if (breakdown.percent !== null && breakdown.percent >= 95) {
-		lines.push(theme.fg("error", "     Near context limit — compaction strongly recommended"));
-	} else if (breakdown.percent !== null && breakdown.percent >= 80) {
-		lines.push(theme.fg("warning", "     Context usage above 80% — consider /compact"));
-	}
-	pushExtensionAllocations(lines, breakdown.extensionAllocations, breakdown.contextWindow);
-	for (const section of breakdown.detailSections) {
-		lines.push("");
-		lines.push(`     ${section.title}`);
-		if (section.subtitle) {
-			lines.push("");
-			lines.push(`     ${section.subtitle}`);
-		}
-		for (const group of section.groups) {
-			if (group.title) {
-				lines.push("");
-				lines.push(`     ${group.title}`);
-			}
-			pushTreeItems(lines, group.items);
-		}
-	}
-
-	lines.push("");
-	lines.push(theme.fg("dim", "     Press Escape, q, or Enter to close"));
-
-	return lines.map((line) => truncateToWidth(line, maxWidth));
 }
 
 function colorizeContextReport(report: string, theme: Theme): string {

@@ -79,13 +79,6 @@ export function isAnthropicPayload(payload: unknown): payload is AnthropicPayloa
 }
 
 /** Count blocks in `system` + `tools`; used for lookback-budget decisions. */
-export function countPrefixBlocks(payload: AnthropicPayload): { system: number; tools: number } {
-	return {
-		system: payload.system?.length ?? 0,
-		tools: payload.tools?.length ?? 0,
-	};
-}
-
 /** Return all cache_control markers in the payload, in render order (system → tools → messages). */
 export interface MarkerRef {
 	section: "system" | "tools" | "messages";
@@ -182,8 +175,8 @@ export function setMessageMarker(
 	control: CacheControl,
 	owner: string,
 ): void {
-	const block = payload.messages?.[msgIdx]?.content as any[] | undefined;
-	if (!block) return;
+	const block = payload.messages?.[msgIdx]?.content;
+	if (!Array.isArray(block)) return;
 	const target = block[blockIdx];
 	if (!target) return;
 	target.cache_control = control;
@@ -191,8 +184,8 @@ export function setMessageMarker(
 }
 
 export function dropMessageMarker(payload: AnthropicPayload, msgIdx: number, blockIdx: number): void {
-	const block = payload.messages?.[msgIdx]?.content as any[] | undefined;
-	if (!block) return;
+	const block = payload.messages?.[msgIdx]?.content;
+	if (!Array.isArray(block)) return;
 	const target = block[blockIdx];
 	if (!target) return;
 	delete target.cache_control;

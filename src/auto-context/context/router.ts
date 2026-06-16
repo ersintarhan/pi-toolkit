@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import path from "node:path";
 import { Type } from "@sinclair/typebox";
 import { resolveTarget, getAnchors, findAnchorByName, formatAnchorContent, getEditorInjectionFor, type AnchorState } from "./anchors.js";
 import { scheduleAction } from "../command-actions.js";
@@ -143,7 +144,7 @@ export function registerContextRouter(pi: ExtensionAPI) {
 						const firstLine = (m.summary.split("\n")[0] ?? "").slice(0, 100);
 						const ellipsis = (m.summary.split("\n")[0] ?? "").length > 100 ? "..." : "";
 						const dateStr = m.timestamp ? m.timestamp.slice(0, 10) : "";
-						const basename = m.sessionFile.split("/").pop() ?? m.sessionFile;
+						const basename = path.basename(m.sessionFile);
 						return `- ${m.anchorName} [${m.anchorId.slice(0, 8)}]  @ ${basename}\n  (${dateStr}) ${firstLine}${ellipsis}`;
 					});
 

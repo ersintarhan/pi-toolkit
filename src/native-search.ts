@@ -41,6 +41,9 @@ import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { hasCodexAuth, refreshCodexAuthStatus } from "./search/codex-auth.js";
 import { executeCodexSearch } from "./search/codex-search.js";
 import { assertPublicUrl } from "./search/ssrf.js";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("native-search");
 
 interface SearchConfig {
   enabled: boolean;
@@ -85,7 +88,7 @@ const PROVIDERS: Record<
   zai: {
     name: "ZAI (GLM)",
     nativeSearch: true,
-    nativeFetch: true,
+    nativeFetch: false,
     envKey: "ZAI_API_KEY",
   },
   google: {
@@ -384,11 +387,16 @@ async function mcpCall<T = any>(
     if (!data || data === "[DONE]") continue;
     try {
       const json = JSON.parse(data);
+      // Skip JSON-RPC notifications (progress/metadata) that have neither a
+      // matching id, nor a result/error. Without this, the first parseable
+      // block is returned even if it is not the actual result.
+      if (json.id !== undefined && json.id !== id) continue;
       if (json.error) throw new Error(`ZAI MCP: ${json.error.message}`);
+      if (json.result === undefined) continue;
       return json.result as T;
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("ZAI MCP:")) throw err;
-      console.error("[native-search] ignoring malformed MCP SSE data", err);
+      log.warn("ignoring malformed MCP SSE data", err);
     }
   }
   throw new Error("ZAI MCP: no valid data in response");
@@ -819,7 +827,7 @@ async function httpFetch(url: string, signal?: AbortSignal): Promise<string> {
       headers,
       redirect: "manual",
     });
-    if (res.status >= 300 && res.status < 400) {
+    if (res.status >= 301 && res.status <= 308) {
       const location = res.headers.get("location");
       if (!location) throw new Error(`Redirect ${res.status} with no Location header`);
       current = new URL(location, target).toString();
@@ -846,7 +854,7 @@ async function httpFetch(url: string, signal?: AbortSignal): Promise<string> {
       (t.truncated ? `\n\n[Truncated: ${t.outputLines}/${t.totalLines} lines]` : "")
     );
   }
-  throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
+  throw new Error(`Too many redirects (max ${MAX_REDIRECTS} hops)`);
 }
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
@@ -857,12 +865,16 @@ async function doSearch(
   model: string,
   baseUrl: string,
   signal?: AbortSignal,
+  onUpdate?: (update: {
+    content: { type: "text"; text: string }[];
+    details: unknown;
+  }) => void,
 ): Promise<{ text: string; nativeError?: string }> {
   const apiKey = getApiKey(provider);
   const cap = PROVIDERS[provider];
-  // claude-bridge uses the `claude` CLI's own subscription auth, so it doesn't
-  // need an api_key in pi's auth.json.
-  const hasAuth = !!apiKey || provider === "claude-bridge";
+  // claude-bridge uses the `claude` CLI's own subscription auth and codex uses
+  // ~/.codex/auth.json, so neither needs an api_key in pi's auth.json.
+  const hasAuth = !!apiKey || provider === "claude-bridge" || provider === "codex";
   if (cap?.nativeSearch && hasAuth) {
     try {
       switch (provider) {
@@ -883,7 +895,7 @@ async function doSearch(
         case "codex": {
           const result = await executeCodexSearch(
             { query, maxSources: 8, freshness: "cached" },
-            { signal },
+            { signal, onUpdate },
           );
           return { text: result.content[0].text };
         }
@@ -1004,6 +1016,7 @@ export default function searchExtension(pi: ExtensionAPI) {
           model,
           baseUrl,
           signal,
+          onUpdate,
         );
         const out = nativeError
           ? `> Native failed (${nativeError.slice(0, 80)}), used DuckDuckGo.\n\n${text}`
@@ -1475,14 +1488,15 @@ export default function searchExtension(pi: ExtensionAPI) {
       cap?.nativeFetch && hasCredentials(p ?? "") && p === "claude-bridge"
         ? "cc-sdk"
         : "http";
+    // Compact footer status. Must NOT start with "[" — powerline-footer treats
+    // "["-prefixed status values as notifications and renders them ABOVE the
+    // editor (cluttering the input area) instead of in the footer segment.
     const parts: string[] = [];
-    if (config.searchEnabled) parts.push(`search:${backend}`);
-    if (config.fetchEnabled) parts.push(`fetch:${fetchBackend}`);
+    if (config.searchEnabled) parts.push(`search ${backend}`);
+    if (config.fetchEnabled) parts.push(`fetch ${fetchBackend}`);
     ctx.ui.setStatus(
       "search",
-      parts.length
-        ? ctx.ui.theme.fg("accent", `search[${parts.join(",")}]`)
-        : undefined,
+      parts.length ? ctx.ui.theme.fg("accent", parts.join(" · ")) : undefined,
     );
   }
 

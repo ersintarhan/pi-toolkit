@@ -73,24 +73,29 @@ interface SSEEvent {
 }
 
 function parseSSEBlock(block: string): SSEEvent | null {
-  let event = "";
+  let event: string | null = null;
   const dataLines: string[] = [];
 
   for (const rawLine of block.split("\n")) {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    if (line.startsWith("event: ")) {
-      event = line.slice(7);
-    } else if (line.startsWith("data: ")) {
-      dataLines.push(line.slice(6));
+    // SSE spec: field value is everything after the colon, optionally stripping
+    // one leading space. `data:{...}` (no space) is valid; tolerate both.
+    if (line.startsWith("event:")) {
+      event = line.slice(6).replace(/^ /, "") || null;
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).replace(/^ /, ""));
     }
   }
 
-  if (!event || dataLines.length === 0) return null;
+  // Per SSE spec, an event without an `event:` field defaults to type "message".
+  // Only require data; an empty data block is meaningless.
+  const effectiveEvent = event ?? "message";
+  if (dataLines.length === 0) return null;
   const dataText = dataLines.join("\n");
   if (dataText === "[DONE]") return null;
 
   try {
-    return { type: event, data: JSON.parse(dataText) };
+    return { type: effectiveEvent, data: JSON.parse(dataText) };
   } catch {
     return null;
   }
@@ -149,7 +154,10 @@ export async function executeCodexSearch(
   const auth = await getCodexAuth();
 
   const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), SEARCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => abortController.abort(new Error(`Codex search timed out after ${SEARCH_TIMEOUT_MS / 1000}s`)),
+    SEARCH_TIMEOUT_MS,
+  );
   const parentSignal = options?.signal;
   const onParentAbort = () => abortController.abort(parentSignal?.reason);
   parentSignal?.addEventListener("abort", onParentAbort, { once: true });
@@ -184,6 +192,17 @@ export async function executeCodexSearch(
 
     let rawOutput = "";
     for await (const event of iterateSSE(response.body)) {
+      // Surface terminal failure events with their real cause instead of
+      // masking them as "Empty response" or a JSON parse error later.
+      if (
+        event.type === "response.failed" ||
+        event.type === "response.error" ||
+        event.type === "response.incomplete"
+      ) {
+        const data = (event.data as any) ?? {};
+        const msg = data?.error?.message ?? data?.reason ?? event.type;
+        throw new Error(`Codex response failed: ${msg}`);
+      }
       if (event.type === "response.output_text.delta") {
         const delta = (event.data.delta as string) ?? "";
         rawOutput += delta;
@@ -198,7 +217,16 @@ export async function executeCodexSearch(
 
     if (!rawOutput) throw new Error("Empty response from API.");
 
-    const parsed = JSON.parse(rawOutput) as { summary?: string; sources?: CodexSearchSource[] };
+    // Models sometimes wrap JSON in markdown fences or add prose preamble,
+    // which would make JSON.parse throw a cryptic SyntaxError. Strip fences
+    // and surface a helpful message on failure.
+    const cleaned = rawOutput.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    let parsed: { summary?: string; sources?: CodexSearchSource[] };
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error(`Codex returned non-JSON output (first 200 chars): ${cleaned.slice(0, 200)}`);
+    }
     if (!parsed.sources || !Array.isArray(parsed.sources)) {
       throw new Error(`Invalid API response: ${rawOutput.slice(0, 200)}`);
     }

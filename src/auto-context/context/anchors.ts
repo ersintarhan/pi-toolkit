@@ -75,7 +75,18 @@ function resolveAnchorTarget(sm: any, anchor: AnchorState): string {
 
 export function resolveTarget(sm: any, target: string): string | null {
 	if (/^[0-9a-f]{8,}$/i.test(target)) {
-		if (sm.getEntry(target)) return target;
+		if (sm.getEntry(target)) {
+			// The id exists, but it may be an anchor's recorded toolCall id. Such an
+			// entry pivots to the toolCall, leaving the toolResult as a sibling.
+			// Try to resolve to the toolResult child via the anchor's name.
+			for (const a of getAnchors(sm)) {
+				if (a.data.targetId === target) {
+					const resolved = resolveAnchorTarget(sm, a.data);
+					if (resolved) return resolved;
+				}
+			}
+			return target;
+		}
 		// Fall through: target might look hex-like but actually be an anchor/label name.
 	}
 	// Prefer anchor name over generic label
@@ -98,7 +109,7 @@ export function getAnchors(sm: any): Array<{ id: string; data: AnchorState }> {
 				id: e.id,
 				data: {
 					name: raw.name,
-					targetId: raw.targetId,
+					targetId: raw.targetId ?? "",
 					summary: raw.summary,
 				} as AnchorState,
 			};

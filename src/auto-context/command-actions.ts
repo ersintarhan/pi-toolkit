@@ -11,6 +11,9 @@
  */
 
 import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
+import { createLogger } from "../logger.js";
+
+const log = createLogger("pi-auto-context");
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -50,7 +53,7 @@ let _activePivot: PendingPivot | null = null;
 
 // ── Accessors ───────────────────────────────────────────────
 
-export function isArmed(): boolean { return _ops !== null; }
+export function isArmed(): boolean { return _ops?.navigateTree != null; }
 export function hasPending(): boolean { return _pending !== null; }
 export function getActivePivot(): PendingPivot | null { return _activePivot; }
 
@@ -107,9 +110,13 @@ export function patchBindCommandContext(): boolean {
 		if (typeof orig !== "function") return false;
 
 		ExtensionRunner.prototype.bindCommandContext = function (actions: any) {
-			_ops = actions ? {
-				navigateTree: actions.navigateTree,
-			} : null;
+			// Only arm when navigateTree is actually a function, so isArmed() never
+			// reports armed for a pi version that lacks this private API.
+			_ops = actions && typeof actions.navigateTree === "function"
+				? {
+					navigateTree: actions.navigateTree,
+				}
+				: null;
 			return orig.call(this, actions);
 		};
 
@@ -139,8 +146,8 @@ export async function runPending(
 			notify(error === undefined ? message : `${message}: ${error}`, "error");
 			return;
 		}
-		if (error === undefined) console.error(`[pi-auto-context] ${message}`);
-		else console.error(`[pi-auto-context] ${message}:`, error);
+		if (error === undefined) log.error(message);
+		else log.error(`${message}:`, error);
 	};
 
 	switch (action.kind) {

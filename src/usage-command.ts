@@ -16,7 +16,22 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
-import { type Focusable, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
+import { type Focusable, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+
+// Hard cap on every outbound usage fetch so a slow/dead provider endpoint can
+// never hang the /usage command indefinitely. Mirrors codex-search's pattern.
+const USAGE_FETCH_TIMEOUT_MS = 15_000;
+
+/** fetch() wrapper that aborts after USAGE_FETCH_TIMEOUT_MS. */
+async function fetchUsage(url: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), USAGE_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 // -----------------------------------------------------------------------------
 // Panel data model
@@ -137,7 +152,7 @@ function kimiUsedLimit(detail: KimiQuotaDetail | undefined): { used: number; lim
 
 async function fetchKimiUsage(): Promise<UsagePanelData> {
   const key = getKimiKey();
-  const res = await fetch("https://api.kimi.com/coding/v1/usages", {
+  const res = await fetchUsage("https://api.kimi.com/coding/v1/usages", {
     headers: { Authorization: `Bearer ${key}` },
   });
   if (!res.ok) {
@@ -193,7 +208,7 @@ interface MinimaxRemainsResponse {
 
 async function fetchMinimaxUsage(): Promise<UsagePanelData> {
   const key = getMinimaxKey();
-  const res = await fetch("https://api.minimax.io/v1/token_plan/remains", {
+  const res = await fetchUsage("https://api.minimax.io/v1/token_plan/remains", {
     headers: { Authorization: `Bearer ${key}` },
   });
   if (!res.ok) {
@@ -258,7 +273,7 @@ interface MimoUsageResponse {
 
 async function fetchMimoUsage(): Promise<UsagePanelData> {
   const cookie = getMimoCookie();
-  const res = await fetch("https://platform.xiaomimimo.com/api/v1/tokenPlan/usage", {
+  const res = await fetchUsage("https://platform.xiaomimimo.com/api/v1/tokenPlan/usage", {
     headers: { Cookie: cookie },
   });
   if (!res.ok) {
@@ -325,7 +340,7 @@ async function fetchCrofaiUsage(): Promise<UsagePanelData> {
   if (!apiKey) {
     throw new Error("CROFAI_API_KEY not set.");
   }
-  const res = await fetch("https://crof.ai/usage_api/", {
+  const res = await fetchUsage("https://crof.ai/usage_api/", {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
   if (!res.ok) {
@@ -346,10 +361,11 @@ async function fetchCrofaiUsage(): Promise<UsagePanelData> {
 
   // Pay-as-you-go → credit balance (shown even on subscription as a secondary line)
   if (body.credits != null) {
+    const credits = Number(body.credits);
     rows.push({
       type: "kv",
       key: "Credits",
-      value: `$${body.credits.toFixed(4)}`,
+      value: Number.isFinite(credits) ? `$${credits.toFixed(4)}` : "—",
     });
   }
 
@@ -426,6 +442,7 @@ class UsagePanelComponent implements Focusable {
 
     const pad = (s: string, len: number) => {
       const vis = visibleWidth(s);
+      if (vis > len) return truncateToWidth(s, len);
       return s + " ".repeat(Math.max(0, len - vis));
     };
     const row = (content: string) =>
@@ -528,11 +545,16 @@ export function registerUsageCommand(pi: ExtensionAPI): void {
       try {
         data = await fetcher();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const raw = err instanceof Error ? err.message : String(err);
+        const msg = err instanceof Error && err.name === "AbortError"
+          ? `usage request timed out after ${USAGE_FETCH_TIMEOUT_MS / 1000}s`
+          : raw;
         ctx.ui.notify(`/usage: ${msg}`, "error");
         return;
       }
 
+      // Intentional stdout: in RPC/headless mode there is no TUI to render to,
+      // so plain text on stdout is the documented output channel.
       if (!ctx.hasUI) {
         console.log(renderUsagePlain(data));
         return;
