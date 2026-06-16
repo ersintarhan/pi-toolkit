@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.0
+
+### Changed
+
+- Enable TypeScript strict mode across the codebase; `streamSimpleKimi` now accepts `Model<Api>` and the dead `tools` parameter was dropped from `convertMessages`.
+- Bump `@anthropic-ai/sdk` from 0.100.1 to 0.104.1.
+- Split the `index.ts` monolith (1175 -> 117 lines) into focused modules: `src/providers/kimi.ts` and `src/providers/crofai.ts`.
+- Replace 21 `console.*` call sites with a best-effort `src/logger.ts` that only writes to the log file and optionally mirrors to stderr under `PI_DEBUG`.
+
+### Fixed
+
+- `claude-oauth-adapter`: docs re-injection moved from the `context` event to the `before_provider_request` payload level, fixing a leak where `{role:custom, display:false}` messages surfaced in the input editor (removes ~190 lines of custom-message helpers).
+- `fetchUsage` now uses a bounded timeout instead of hanging indefinitely.
+- `resolveCacheTTL` is hoisted so it runs once instead of being recomputed 3x per turn.
+- CrofAI provider registration is now guarded against re-registration.
+
+### Performance
+
+- `_anchorCache` is bounded with a 256-session LRU to cap memory growth.
+
 ## 0.5.12
 
 ### Fixed
