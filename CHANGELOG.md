@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Fixed
+
+- Remove the `[pi-auto-context]` model-facing status note that was appended to the last user message on every turn. It distracted the agent (spurious compaction urges, anchor confusion). The TUI footer status and tool-result truncation are unchanged (human-facing only, never sent to the model).
+
 ## 0.6.0
 
 ### Changed
