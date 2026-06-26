@@ -1,6 +1,6 @@
 {
 	"name": "@ersintarhan/pi-toolkit",
-	"version": "0.6.1",
+	"version": "0.7.0",
 	"description": "pi extension that registers Kimi, MiniMax, Xiaomi MiMo, and CrofAI providers with cache fix, Anthropic OAuth adapter, and native web search with provider-override support. Search backends include ZAI MCP, Google, OpenAI, xAI, Anthropic, Claude Code, and Codex (ChatGPT) with DuckDuckGo fallback.",
 	"keywords": [
 		"pi-package",
@@ -58,13 +58,13 @@
 		]
 	},
 	"dependencies": {
-		"@anthropic-ai/sdk": "^0.104.1"
+		"@anthropic-ai/sdk": "^0.106.0"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": "*",
-		"@earendil-works/pi-ai": "*",
-		"@earendil-works/pi-tui": "*",
-		"@sinclair/typebox": "*"
+		"@earendil-works/pi-ai": "^0.80.2",
+		"@earendil-works/pi-coding-agent": "^0.80.2",
+		"@earendil-works/pi-tui": "^0.80.2",
+		"@sinclair/typebox": "^0.34.49"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.3.14",

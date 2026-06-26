@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+### Changed
+
+- Update dependencies: `@anthropic-ai/sdk` 0.104.1 -> 0.106.0, peer deps pinned to `@earendil-works/pi-ai`/`pi-coding-agent`/`pi-tui` `^0.80.2` (required for the api subpath imports) and `@sinclair/typebox` `^0.34.49`.
+
+### Fixed
+
+- `src/providers/kimi.ts`: replace the removed top-level `streamSimpleOpenAICompletions` import with the modern `streamSimple` from `@earendil-works/pi-ai/api/openai-completions`, fixing the CI typecheck failure (`TS2305: no exported member`) on pi-ai 0.80.x.
+
 ## 0.6.1
 
 ### Fixed

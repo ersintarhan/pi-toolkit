@@ -27,8 +27,8 @@ import type {
 import {
   Api,
   createAssistantMessageEventStream,
-  streamSimpleOpenAICompletions,
 } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import type { ExtensionAPI, OAuthCredential } from "@earendil-works/pi-coding-agent";
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
 import { streamSimpleAnthropicCached } from "../cached-anthropic-stream.js";
@@ -833,7 +833,7 @@ export function streamSimpleKimi(
         const patchedOptions = buildPatchedOptions(currentKey);
         const upstream =
           api === "openai-completions"
-            ? streamSimpleOpenAICompletions(
+            ? streamSimple(
                 model as Model<"openai-completions">,
                 context,
                 patchedOptions,
