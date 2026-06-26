@@ -5,9 +5,8 @@
  *   context — view, recall, anchor, pivot
  *
  * Also registers a context event hook to:
- *   - inject a status line ([pi-auto-context] model=… | context=…% | tool=…% | anchor=…)
+ *   - show a footer status (context % and current anchor) in the TUI status bar
  *   - truncate old tool results (before the last anchor) to save context window
- *   - remind once if no anchors exist after 10+ entries
  *
  * Uses a private API hack to capture command-only closures from
  * ExtensionRunner.prototype.bindCommandContext, then executes a pending pivot
@@ -35,13 +34,9 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Context event: truncate old tool results + footer status ──
 	// Receives AgentMessage[]. Anchors are toolResults with toolName=="context" and details.anchor.
-	// NOTE: This handler must NOT inject a visible status message into the transcript.
-	// Previously it spliced a `{role:"custom",customType:"pi-status",display:false}` message after
-	// the last user message. That message leaked into the input editor area (visible to the
-	// user despite display:false) — bad UX and conflicts with powerline-footer. The model-facing
-	// status line is now injected at the provider-payload level in `before_provider_request` below,
-	// where mutations are sent to the LLM but NEVER persisted/rendered in the UI.
-	let anchorReminderSent = false;
+	// NOTE: This handler only truncates old tool results and updates the footer
+	// status. It must NOT inject any message into the transcript — model-facing
+	// status notes were removed because they distracted the agent.
 	let pendingRunTimer: ReturnType<typeof setTimeout> | undefined;
 
 	/**
@@ -137,122 +132,6 @@ export default function (pi: ExtensionAPI) {
 		if (modified) return { messages };
 	});
 
-	// ── before_provider_request: inject a HIDDEN model-facing status line ──
-	// Runs at the provider-payload level. Mutations here are sent to the LLM but
-	// NEVER persisted to the transcript or rendered in the UI, so the user never
-	// sees `[pi-auto-context] ...`. This replaces the old context-event splice
-	// (custom pi-status message) which leaked into the input editor.
-	pi.on("before_provider_request", async (event, ctx) => {
-		if (!ctx.model) return;
-		const payload = event.payload as any;
-		const msgs = payload?.messages;
-		if (!Array.isArray(msgs) || msgs.length === 0) return;
-
-		const { parts } = buildStatusParts(ctx);
-
-		// Tool-output share — proxy for context noise density. Only surface it when
-		// meaningfully high (>50%). Computed from the payload's LLM-format messages.
-		// Both numerator (tool output) and denominator (all content) include tool
-		// output, so the ratio is a real share in [0, 100] and never exceeds 100%.
-		let totalChars = 0;
-		let toolChars = 0;
-		for (const m of msgs as any[]) {
-			const measureContent = (content: unknown): number => {
-				if (typeof content === "string") return content.length;
-				if (Array.isArray(content)) {
-					let n = 0;
-					for (const part of content) {
-						if (typeof part?.text === "string") n += part.text.length;
-						else if (part?.type === "tool_result") {
-							// tool_result content may be a string or an array of text blocks.
-							if (typeof part?.content === "string") n += part.content.length;
-							else if (Array.isArray(part?.content)) {
-								for (const b of part.content) {
-									if (typeof b?.text === "string") n += b.text.length;
-								}
-							}
-						}
-					}
-					return n;
-				}
-				return 0;
-			};
-			const mc = measureContent(m.content);
-			totalChars += mc;
-			// Anthropic tool outputs arrive as user messages with tool_result parts.
-			if (m.role === "user" && Array.isArray(m.content)) {
-				for (const part of m.content) {
-					if (part?.type === "tool_result") {
-						toolChars +=
-							typeof part?.content === "string"
-								? part.content.length
-								: Array.isArray(part?.content)
-									? part.content.reduce(
-											(n: number, b: any) => n + (typeof b?.text === "string" ? b.text.length : 0),
-											0,
-										)
-									: 0;
-					}
-				}
-			}
-		}
-		if (totalChars > 0) {
-			const toolPct = Math.round((toolChars / totalChars) * 100);
-			if (toolPct > 50) parts.push(`toolShare=${toolPct}%`);
-		}
-
-		// Anchor reminder — only once per session (once-only state lives in closure).
-		if (!anchorReminderSent) {
-			const branchEntries = ctx.sessionManager?.getBranch?.() ?? [];
-			const anchors = branchEntries.filter(isAnchorEntry);
-			if (anchors.length > 0) {
-				anchorReminderSent = true;
-			} else if (branchEntries.length > 10) {
-				parts.push(`hint=no-anchors-yet`);
-				anchorReminderSent = true;
-			}
-		}
-
-		if (parts.length === 0) return;
-		const note = `[pi-auto-context] ${parts.join(" | ")}`;
-
-		// Append the status note INTO the last user message's content (rather than
-		// splicing a separate {role:"user"} message). This avoids creating
-		// consecutive same-role messages (Anthropic requires alternation) and
-		// keeps the request prefix identical to the no-status baseline
-		// (prefix-cache safe). The note is idempotent: re-appending on retries
-		// is guarded by a sentinel marker.
-		const SENTINEL = "[pi-auto-context]";
-		for (let i = msgs.length - 1; i >= 0; i--) {
-			const m = msgs[i];
-			if (m?.role !== "user") continue;
-			if (typeof m.content === "string") {
-				if (!m.content.includes(SENTINEL)) m.content = `${m.content}\n\n${note}`;
-			} else if (Array.isArray(m.content)) {
-				const lastText = m.content[m.content.length - 1];
-				if (lastText?.type === "text" && !String(lastText.text ?? "").includes(SENTINEL)) {
-					lastText.text = `${lastText.text ?? ""}\n\n${note}`;
-				} else if (!m.content.some((p: any) => p?.type === "text" && String(p.text ?? "").includes(SENTINEL))) {
-					m.content.push({ type: "text", text: note });
-				}
-			} else {
-				// Unknown content shape — normalize the message to an array of text
-				// parts and append the note INTO it. Splicing a standalone
-				// {role:"user"} message here would create consecutive same-role
-				// messages (the very thing this branch's siblings avoid), which
-				// Anthropic rejects with a 400.
-				const existing = m.content == null ? "" : String(m.content);
-				m.content = existing
-					? [{ type: "text", text: existing }, { type: "text", text: note }]
-					: [{ type: "text", text: note }];
-			}
-			return payload;
-		}
-		// No user message at all — append one.
-		msgs.push({ role: "user", content: note } as any);
-		return payload;
-	});
-
 	pi.on("session_before_tree", async (event) => {
 		const pivot = getActivePivot();
 		if (!pivot) return;
@@ -298,7 +177,6 @@ export default function (pi: ExtensionAPI) {
 	// Warn once if patch failed or command context was never bound.
 	let warnedOnce = false;
 	pi.on("session_start", async (_event, ctx) => {
-		anchorReminderSent = false;
 		if (warnedOnce) return;
 		if (!patchOk) {
 			warnedOnce = true;
@@ -311,7 +189,6 @@ export default function (pi: ExtensionAPI) {
 
 	// Clear stale pending state on session shutdown.
 	pi.on("session_shutdown", async (_event, ctx) => {
-		anchorReminderSent = false;
 		if (ctx.hasUI) ctx.ui.setStatus("auto-context", undefined);
 		if (pendingRunTimer) {
 			clearTimeout(pendingRunTimer);
