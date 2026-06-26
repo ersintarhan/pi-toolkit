@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+### Fixed
+
+- `src/providers/kimi.ts`: the `streamSimple` import from the `@earendil-works/pi-ai/api/openai-completions` subpath broke pi's extension loader, which mis-resolves static `pkg/subpath` imports into a bogus `dist/compat.js/api/...` path and failed to load the extension at startup. Switched to a lazy dynamic `import()` resolved by Node's native ESM resolver, which bypasses the loader bug. (The openai-completions path is only reached when `KIMI_CODE_PROTOCOL=openai`; the default remains anthropic-messages.)
+
 ## 0.7.0
 
 ### Changed

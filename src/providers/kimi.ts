@@ -18,6 +18,7 @@ import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
   AssistantMessageEvent,
+  AssistantMessageEventStream,
   CacheRetention,
   Context,
   Model,
@@ -28,13 +29,37 @@ import {
   Api,
   createAssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import type { ExtensionAPI, OAuthCredential } from "@earendil-works/pi-coding-agent";
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
 import { streamSimpleAnthropicCached } from "../cached-anthropic-stream.js";
 import { createLogger } from "../logger.js";
 
 const log = createLogger("kimi-coding");
+
+/**
+ * Lazy stream function for the OpenAI-completions api. Imported dynamically so
+ * pi's extension loader (which mis-resolves static `pkg/subpath` imports into a
+ * bogus `dist/compat.js/api/...` path) is bypassed — Node's native ESM
+ * resolver handles the subpath `exports` entry at runtime. Cached after first
+ * load. Only reached when KIMI_CODE_PROTOCOL=openai (the default is
+ * anthropic-messages).
+ */
+let _openAICompletionsStream: ((
+  model: Model<"openai-completions">,
+  context: Context,
+  options?: SimpleStreamOptions,
+) => AssistantMessageEventStream) | undefined;
+async function streamOpenAICompletions(
+  model: Model<"openai-completions">,
+  context: Context,
+  options?: SimpleStreamOptions,
+): Promise<AssistantMessageEventStream> {
+  if (!_openAICompletionsStream) {
+    const mod = await import("@earendil-works/pi-ai/api/openai-completions");
+    _openAICompletionsStream = mod.streamSimple;
+  }
+  return _openAICompletionsStream(model, context, options);
+}
 
 // =============================================================================
 // Constants
@@ -833,7 +858,7 @@ export function streamSimpleKimi(
         const patchedOptions = buildPatchedOptions(currentKey);
         const upstream =
           api === "openai-completions"
-            ? streamSimple(
+            ? await streamOpenAICompletions(
                 model as Model<"openai-completions">,
                 context,
                 patchedOptions,
