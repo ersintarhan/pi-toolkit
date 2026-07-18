@@ -1,7 +1,7 @@
 /**
  * @ersintarhan/pi-toolkit — entry point / wiring layer.
  *
- * Registers providers (Kimi, MiniMax, Xiaomi MiMo, CrofAI) and composes the
+ * Registers providers (MiniMax, Xiaomi MiMo) and composes the
  * bundled extensions: cached Anthropic stream, Claude OAuth adapter, native
  * web search, usage/context slash commands, and auto-context anchors.
  *
@@ -17,15 +17,9 @@ import { registerContextCommand } from "./src/context-command.js";
 import claudeOauthAdapter from "./src/claude-oauth-adapter.js";
 import nativeSearchExtension from "./src/native-search.js";
 import autoContextExtension from "./src/auto-context/index.js";
-import { registerKimiProvider } from "./src/providers/kimi.js";
-import {
-  registerCrofaiProvider,
-  refreshCrofaiModelsIfNeeded,
-} from "./src/providers/crofai.js";
 
 export default function (pi: ExtensionAPI) {
   // ── Providers ──────────────────────────────────────────────────────────
-  registerKimiProvider(pi);
 
   // MiniMax — Anthropic-compatible, uses the cached stream directly.
   pi.registerProvider("minimax", {
@@ -99,13 +93,6 @@ export default function (pi: ExtensionAPI) {
         maxTokens: 131072,
       },
     ],
-  });
-
-  // CrofAI — register the static fallback catalog now, refresh live on session_start.
-  registerCrofaiProvider(pi);
-  pi.on("session_start", async (_event, ctx) => {
-    const apiKey = await ctx.modelRegistry.getApiKeyForProvider("crofai").catch(() => undefined);
-    if (apiKey) await refreshCrofaiModelsIfNeeded(pi, apiKey);
   });
 
   // ── Extensions ─────────────────────────────────────────────────────────

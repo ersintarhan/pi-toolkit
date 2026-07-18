@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.2
+
+### Changed
+
+- **Remove bundled providers**: `kimi-coding` and `crofai` providers have been removed from `@ersintarhan/pi-toolkit`. The package now only registers `minimax` and `xiaomi-mimo` providers.
+- **README updated** to document the removal and point users to the dedicated [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code) package for Kimi.
+
+### Notes
+
+- The Claude OAuth adapter, native search, context management (`/context`, anchors), and usage slash command remain unchanged.
+- `src/providers/` directory is removed.
+
 ## 0.7.1
 
 ### Fixed

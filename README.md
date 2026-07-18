@@ -3,11 +3,13 @@
 All-in-one pi extension toolkit.
 
 Includes:
-- **Providers**: `kimi-coding`, `minimax`, `xiaomi-mimo`, `crofai`
+- **Providers**: `minimax`, `xiaomi-mimo`
 - **Cache optimization** for Anthropic-compatible providers
 - **Claude OAuth adapter** for Anthropic OAuth sessions
 - **Native web search** with multiple backends + provider override
 - **Context management** (`anchor`, `view`, `pivot`, `recall`)
+
+> **Note:** The `kimi-coding` and `crofai` providers have been moved out of this package. For Kimi, install the dedicated provider such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code). CrofAI can be installed from its own package when needed.
 
 ## Install
 
@@ -29,14 +31,14 @@ Registers these providers:
 
 | Provider | API | Notes |
 |---|---|---|
-| `kimi-coding` | Anthropic-compatible or OpenAI mode | OAuth, API key fallback, image/video upload, Kimi-specific payload mutations |
 | `minimax` | Anthropic-compatible | Cache-fixed stream path |
 | `xiaomi-mimo` | Anthropic-compatible | Cache-fixed stream path, MiMo quirks handled |
-| `crofai` | OpenAI-compatible | Dynamic model list, usage support |
+
+For Kimi, use an external Kimi provider package (e.g. [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code)).
 
 ### 2. Cache optimization
 
-For Anthropic-compatible providers (`kimi-coding`, `minimax`, `xiaomi-mimo`), this package uses a custom cached stream implementation derived from the better-messages-cache approach.
+For Anthropic-compatible providers (`minimax`, `xiaomi-mimo`), this package uses a custom cached stream implementation derived from the better-messages-cache approach.
 
 It does three things:
 - marks the last assistant `tool_use` block
@@ -101,20 +103,6 @@ Also includes:
 
 ## Provider usage
 
-### Kimi
-
-```bash
-/model kimi-coding/kimi-for-coding
-```
-
-Auth options:
-- `KIMI_API_KEY`
-- `/login kimi-coding` OAuth
-
-Optional:
-- `KIMI_CODE_PROTOCOL=openai`
-- `KIMI_CODE_MODEL=<model>`
-
 ### MiniMax
 
 ```bash
@@ -141,17 +129,23 @@ Optional region override:
 export XIAOMI_MIMO_BASE_URL=https://token-plan-ams.xiaomimimo.com/anthropic
 ```
 
-### CrofAI
+### Kimi
+
+The `kimi-coding` provider is no longer bundled. Install a dedicated Kimi provider package, for example:
 
 ```bash
-/model crofai/openai/gpt-4o
+pi install npm:pi-provider-kimi-code
+# or via local path
+pi -e /path/to/pi-provider-kimi-code
 ```
 
-Requires:
-- `CROFAI_API_KEY`
+Then select Kimi as usual:
 
-Models are fetched dynamically from:
-- `https://crof.ai/v1/models`
+```bash
+/model kimi-for-coding
+```
+
+> The upstream [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code) package is actively maintained and supports Kimi model discovery, OAuth, file uploads, and Kimi-specific payload mutations.
 
 ## `/usage` command
 
@@ -161,10 +155,8 @@ Supported:
 
 | Provider | Endpoint |
 |---|---|
-| `kimi-coding` | `https://api.kimi.com/coding/v1/usages` |
 | `minimax` | `https://api.minimax.io/v1/token_plan/remains` |
 | `xiaomi-mimo` | `https://platform.xiaomimimo.com/api/v1/tokenPlan/usage` |
-| `crofai` | `https://crof.ai/usage_api/` |
 
 Examples:
 
@@ -192,10 +184,10 @@ Example:
 
 ## Search override examples
 
-Use Kimi for coding, but ZAI for search:
+Use MiniMax for coding, but ZAI for search:
 
 ```bash
-/model kimi-coding/kimi-for-coding
+/model minimax/MiniMax-M3
 /search provider zai
 ```
 
@@ -216,13 +208,13 @@ Return to auto-detect:
 Anchor after a completed phase:
 
 ```text
-context(anchor, name="crofai-added", summary="CrofAI provider added with dynamic models and usage support.")
+context(anchor, name="search-setup", summary="Search override configured to use ZAI.")
 ```
 
 Pivot back to a clean checkpoint:
 
 ```text
-context(pivot, target="crofai-added", carryover="Search override added later; CrofAI implementation is stable.")
+context(pivot, target="search-setup", carryover="Search override is stable; Claude OAuth adapter handles Anthropic billing header.")
 ```
 
 ## Environment summary
@@ -230,19 +222,12 @@ context(pivot, target="crofai-added", carryover="Search override added later; Cr
 Common env vars:
 
 ```bash
-# Kimi
-export KIMI_API_KEY=...
-export KIMI_CODE_PROTOCOL=anthropic
-
 # MiniMax
 export MINIMAX_API_KEY=...
 
 # Xiaomi MiMo
 export XIAOMI_TOKEN_PLAN_API_KEY=...
 export XIAOMI_MIMO_BASE_URL=...
-
-# CrofAI
-export CROFAI_API_KEY=...
 
 # Search backends
 export ZAI_API_KEY=...
@@ -254,10 +239,11 @@ export ANTHROPIC_API_KEY=...
 
 ## Compatibility notes
 
-- Do **not** install older overlapping Kimi provider forks at the same time.
+- Do **not** install older overlapping Kimi provider forks at the same time as a dedicated Kimi provider package.
 - Local `pi -e ...` development may behave differently from installed npm packages for skill loading.
 - Codex search requires `codex login` first.
 - Claude OAuth adapter only activates for the `anthropic` provider when OAuth is actually in use.
+- The `kimi-coding` and `crofai` providers were removed in v0.7.2. Use dedicated provider packages for them.
 
 ## Changelog
 
