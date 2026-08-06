@@ -15,7 +15,7 @@ import type {
   ExtensionCommandContext,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { type Focusable, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 // Hard cap on every outbound usage fetch so a slow/dead provider endpoint can
@@ -56,8 +56,7 @@ function getKimiKey(): string {
   const envKey = process.env.KIMI_API_KEY?.trim();
   if (envKey) return envKey;
 
-  const storage = AuthStorage.create();
-  const cred = storage.get("kimi-coding");
+  const cred = readStoredCredential("kimi-coding");
   if (cred && cred.type === "oauth" && cred.access) return cred.access;
 
   throw new Error(
