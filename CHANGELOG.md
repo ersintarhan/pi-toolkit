@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1
+
+### Fixed
+
+- Run pending auto-context pivots after Pi's `agent_settled` event instead of `agent_end`, ensuring retries, auto-compaction, follow-up messages, and continuation loops finish first.
+- Retain the deferred `setTimeout(0)` execution so the private `navigateTree` operation runs outside extension event dispatch.
+
 ## 0.8.0
 
 ### Changed
