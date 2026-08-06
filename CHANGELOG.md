@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0
+
+### Changed
+
+- Update Pi peer dependencies (`pi-ai`, `pi-coding-agent`, `pi-tui`) from `^0.80.2` to `^0.84.0`.
+- Update `@anthropic-ai/sdk` to `^0.115.0`, `@sinclair/typebox` to `^0.34.52`, and TypeScript to `^7.0.2`.
+- Add the missing `oxlint` dev dependency used by the lint script.
+
+### Fixed
+
+- Replace the removed Pi 0.84 `AuthStorage` export with `readStoredCredential` in the usage command.
+
 ## 0.7.2
 
 ### Changed
