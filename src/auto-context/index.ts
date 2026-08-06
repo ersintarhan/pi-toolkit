@@ -10,7 +10,9 @@
  *
  * Uses a private API hack to capture command-only closures from
  * ExtensionRunner.prototype.bindCommandContext, then executes a pending pivot
- * after agent_end + setTimeout(0). Upstream equivalent: pi.runWhenIdle() (#2023).
+ * after agent_settled + setTimeout(0). The settled event avoids retries,
+ * auto-compaction, and follow-up continuations; the timer exits event dispatch
+ * before invoking the private command operation (#2023).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -147,7 +149,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// ── Execute pending actions after agent fully settles ──
-	pi.on("agent_end", async (_event, ctx) => {
+	pi.on("agent_settled", async (_event, ctx) => {
 		if (!hasPending()) return;
 		const notify = ctx.hasUI
 			? (msg: string, level: "info" | "warning" | "error") => ctx.ui.notify(msg, level)

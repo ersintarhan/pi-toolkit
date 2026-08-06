@@ -4,10 +4,11 @@
  * pi's public API only exposes navigateTree on ExtensionCommandContext
  * (command handlers), not on ExtensionContext (tools/events). We patch
  * ExtensionRunner.prototype.bindCommandContext to capture that closure when the
- * runtime binds it, then execute pending pivot actions after agent_end +
- * setTimeout(0).
+ * runtime binds it, then execute pending pivot actions after agent_settled +
+ * setTimeout(0), outside both the agent run and extension event dispatch.
  *
- * This is the userland polyfill for upstream pi.runWhenIdle() (#2023).
+ * agent_settled solves the timing half of #2023; the private patch remains
+ * necessary because settled event contexts still omit navigateTree.
  */
 
 import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
