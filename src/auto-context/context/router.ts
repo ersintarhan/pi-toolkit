@@ -23,6 +23,19 @@ const ContextScopeSchema = Type.Union(
 	},
 );
 
+export const ContextParametersSchema = Type.Object({
+	action: ContextActionSchema,
+	limit: Type.Optional(Type.Number({ description: "Max results to show. Default: 30 for view, 10 for recall." })),
+	offset: Type.Optional(Type.Number({ description: "Skip N results. Default: 0. For view and recall." })),
+	keyword: Type.Optional(Type.String({ description: "Keyword (case-insensitive) matched against anchor name and summary. For recall." })),
+	scope: Type.Optional(ContextScopeSchema),
+	name: Type.Optional(Type.String({ maxLength: 120, description: "Anchor name (must be unique). For anchor." })),
+	summary: Type.Optional(Type.String({ maxLength: 12_000, description: "Retrospective state: what's done, key decisions, what was confirmed. For anchor." })),
+	target: Type.Optional(Type.String({ description: "Target: anchor name, entry ID, or label. For pivot." })),
+	carryover: Type.Optional(Type.String({ maxLength: 16_000, description: "Required summary of current progress to carry into the new branch. For pivot." })),
+	message: Type.Optional(Type.String({ maxLength: 16_000, description: "Optional next-turn directive delivered as a user message. For pivot. Omit to leave the new branch idle." })),
+});
+
 export function registerContextRouter(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "context",
@@ -38,21 +51,10 @@ export function registerContextRouter(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"Use context(action='anchor') at meaningful task boundaries; summarize completed/decided state, not todos.",
 			"Use context(action='view') to see anchors in this session before deciding where to pivot.",
-			"Use context(action='pivot') to return to a prior anchor when changing approach; include carryover.",
+			"Use context(action='pivot') to return to a prior anchor when changing approach; include carryover. Once scheduled, call no more tools and end the current turn immediately.",
 			"Use context(action='recall') before related work to check past session anchors.",
 		],
-		parameters: Type.Object({
-			action: ContextActionSchema,
-			limit: Type.Optional(Type.Number({ description: "Max results to show. Default: 30 for view, 10 for recall." })),
-			offset: Type.Optional(Type.Number({ description: "Skip N results. Default: 0. For view and recall." })),
-			keyword: Type.Optional(Type.String({ description: "Keyword (case-insensitive) matched against anchor name and summary. For recall." })),
-			scope: Type.Optional(ContextScopeSchema),
-			name: Type.Optional(Type.String({ description: "Anchor name (must be unique). For anchor." })),
-			summary: Type.Optional(Type.String({ description: "Retrospective state: what's done, key decisions, what was confirmed. For anchor." })),
-			target: Type.Optional(Type.String({ description: "Target: anchor name, entry ID, or label. For pivot." })),
-			carryover: Type.Optional(Type.String({ description: "Required summary of current progress to carry into the new branch. For pivot." })),
-			message: Type.Optional(Type.String({ description: "Optional next-turn directive delivered as a user message. For pivot. Omit to leave the new branch idle." })),
-		}),
+		parameters: ContextParametersSchema,
 		async execute(_id, params, signal, _onUpdate, ctx) {
 			switch (params.action) {
 				// ── view ─────────────────────────────────────────────
@@ -128,7 +130,7 @@ export function registerContextRouter(pi: ExtensionAPI) {
 					const limit = Math.max(0, Math.trunc(params.limit ?? 10));
 					const offset = Math.max(0, Math.trunc(params.offset ?? 0));
 					const scope = (params.scope ?? "cwd") as "cwd" | "all";
-					const matches = await scanAnchors(params.keyword, scope, ctx.cwd, limit, offset, signal);
+					const matches = await scanAnchors(params.keyword, scope, ctx.cwd, limit, offset, signal, ctx.sessionManager.getSessionDir());
 
 					if (matches.length === 0) {
 						return {
@@ -239,7 +241,7 @@ export function registerContextRouter(pi: ExtensionAPI) {
 							label: params.target,
 							expectedInjection: getEditorInjectionFor(ctx.sessionManager, targetId),
 						},
-						successText: `Scheduled pivot to ${params.target} (${targetId.slice(0, 8)})${params.message ? " (with custom followUp message)" : ""}.`,
+						successText: `Scheduled pivot to ${params.target} (${targetId.slice(0, 8)})${params.message ? " (with custom followUp message)" : ""}. Call no more tools; end the current turn immediately.`,
 						details: { scheduled: "pivot", targetId, message: params.message },
 					});
 				}

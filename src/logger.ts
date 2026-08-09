@@ -8,7 +8,7 @@
  * through here instead.
  *
  * Logs append to `<piDir>/logs/<namespace>.log` (one file per namespace),
- * newline-delimited. The piDir honors PI_HOME and falls back to ~/.pi/agent.
+ * newline-delimited. The piDir honors Pi's public PI_CODING_AGENT_DIR setting.
  * Writes are best-effort: failures are swallowed so logging can never break
  * a session. A PI_DEBUG=1 env var additionally mirrors lines to stderr for
  * live `tail` during development.
@@ -21,13 +21,13 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
-function getPiDir(): string {
-  return process.env.PI_HOME ?? join(homedir(), ".pi", "agent");
+export function getToolkitLogPath(namespace: string): string {
+  return join(getAgentDir(), "logs", `${namespace}.log`);
 }
 
 function sanitize(value: unknown): string {
@@ -56,7 +56,7 @@ export interface Logger {
 }
 
 export function createLogger(namespace: string): Logger {
-  const logPath = join(getPiDir(), "logs", `${namespace}.log`);
+  const logPath = getToolkitLogPath(namespace);
   const mirrorToStderr = process.env.PI_DEBUG === "1" || process.env.PI_TOOLKIT_DEBUG === "1";
 
   // Ensure the directory exists once at logger creation, not on every write.

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Return MiniMax and Xiaomi requests to Pi 0.84's native provider catalogs and streams; the toolkit no longer overrides `minimax`.
+- Keep `xiaomi-mimo` for one release as a deprecated compatibility alias exposing only `mimo-v2.5` and `mimo-v2.5-pro` with current metadata.
+- Map native Xiaomi provider IDs to the existing `/usage` fetcher.
+- Remove the 875-line custom Anthropic stream and direct `@anthropic-ai/sdk` dependency. The Claude OAuth adapter remains enabled and unchanged.
+
+### Fixed
+
+- Correct native search fallback/provider selection and hot-reload-safe context command state.
+- Clamp `/usage` rendering to narrow terminals and correct `/context` skill/source accounting.
+- Bound context-tool text inputs and honor `PI_CODING_AGENT_DIR` for toolkit logs.
+- Align anchor-cache TTLs with native Pi payload markers and canonical retention settings.
+- Pin Bun 1.3.14 with a fresh lockfile, frozen CI installs, and publish-time checks.
+
 ## 0.8.1
 
 ### Fixed

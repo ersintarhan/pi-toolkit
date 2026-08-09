@@ -4,7 +4,8 @@
  * Dispatches by ctx.model.provider:
  *   - kimi-coding  → https://api.kimi.com/coding/v1/usages (KIMI_API_KEY or OAuth)
  *   - minimax      → https://api.minimax.io/v1/token_plan/remains (MINIMAX_API_KEY)
- *   - xiaomi-mimo  → https://platform.xiaomimimo.com/api/v1/tokenPlan/usage
+ *   - xiaomi / Xiaomi regional IDs / legacy xiaomi-mimo
+ *                  → https://platform.xiaomimimo.com/api/v1/tokenPlan/usage
  *                    (XIAOMI_MIMO_SESSION_COOKIE — browser SSO cookie; the
  *                    tp-... API key is rejected by this endpoint)
  *   - crofai       → https://crof.ai/usage_api/ (CROFAI_API_KEY)
@@ -408,13 +409,13 @@ function formatTimeUntilIso(iso: string | undefined): string {
 
 const BAR_WIDTH = 30;
 
-function renderBar(percent: number): string {
+function renderBar(percent: number, width = BAR_WIDTH): string {
   const clamped = Math.max(0, Math.min(1, percent));
-  const filled = Math.round(BAR_WIDTH * clamped);
-  return "▰".repeat(filled) + "▱".repeat(BAR_WIDTH - filled);
+  const filled = Math.round(width * clamped);
+  return "▰".repeat(filled) + "▱".repeat(width - filled);
 }
 
-class UsagePanelComponent implements Focusable {
+export class UsagePanelComponent implements Focusable {
   readonly width = 64;
   focused = false;
 
@@ -434,9 +435,10 @@ class UsagePanelComponent implements Focusable {
     }
   }
 
-  render(_w: number): string[] {
+  render(w: number): string[] {
     const th = this.theme;
-    const innerW = this.width - 2;
+    const panelW = Math.max(2, Math.min(this.width, w));
+    const innerW = panelW - 2;
     const lines: string[] = [];
 
     const pad = (s: string, len: number) => {
@@ -460,8 +462,8 @@ class UsagePanelComponent implements Focusable {
         lines.push(row(` ${th.fg("dim", `${r.key}:`)} ${th.fg("text", r.value)}`));
       } else if (r.type === "bar") {
         const pct = r.limit > 0 ? r.used / r.limit : 0;
-        const bar = renderBar(pct);
         const pctText = `${(pct * 100).toFixed(1)}%`;
+        const bar = renderBar(pct, Math.max(0, Math.min(BAR_WIDTH, innerW - visibleWidth(pctText) - 3)));
         const detail = `${formatNumber(r.used)} / ${formatNumber(r.limit)}${
           r.suffix ? ` ${r.suffix}` : ""
         }`;
@@ -516,6 +518,10 @@ const FETCHERS: Record<string, () => Promise<UsagePanelData>> = {
   "kimi-coding": fetchKimiUsage,
   crofai: fetchCrofaiUsage,
   minimax: fetchMinimaxUsage,
+  xiaomi: fetchMimoUsage,
+  "xiaomi-token-plan-cn": fetchMimoUsage,
+  "xiaomi-token-plan-ams": fetchMimoUsage,
+  "xiaomi-token-plan-sgp": fetchMimoUsage,
   "xiaomi-mimo": fetchMimoUsage,
 };
 

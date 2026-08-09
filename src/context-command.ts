@@ -5,7 +5,7 @@
  *   /context
  */
 
-import type { ContextUsage, ExtensionAPI, ExtensionCommandContext, Theme, ToolInfo, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import { estimateTokens, type ContextUsage, type ExtensionAPI, type ExtensionCommandContext, type Theme, type ToolInfo, type SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 type TextBlock = { type?: string; text?: string };
@@ -97,8 +97,15 @@ const MAX_DETAIL_ITEMS = 48;
 
 const ansi256Fg = (code: number, text: string) => `\x1b[38;5;${code}m${text}\x1b[0m`;
 
-function estimateStringTokens(text: string): number {
-	return Math.ceil(text.length / 4);
+export function estimateStringTokens(text: string): number {
+	return estimateTokens({ role: "user", content: text, timestamp: 0 });
+}
+
+export function splitAvailableSkillsTokens(systemPrompt: string): { system: number; skills: number } {
+	const block = systemPrompt.match(/<available_skills>[\s\S]*?<\/available_skills>/)?.[0];
+	if (!block) return { system: estimateStringTokens(systemPrompt), skills: 0 };
+	const skills = estimateStringTokens(block);
+	return { system: Math.max(0, estimateStringTokens(systemPrompt) - skills), skills };
 }
 
 function estimateContentTokens(content: unknown): { text: number; images: number } {
@@ -157,7 +164,7 @@ function getModelLabel(ctx: ExtensionCommandContext, contextWindow: number): str
 	return `${short} (${formatTokens(contextWindow)} context)`;
 }
 
-function sourceAllocationName(value: unknown): string {
+export function sourceAllocationName(value: unknown): string {
 	if (!value || typeof value !== "object") return "unknown";
 	const source = value as { sourceInfo?: { source?: string; baseDir?: string; path?: string }; customType?: string };
 	if (source.customType) return source.customType;
@@ -167,7 +174,10 @@ function sourceAllocationName(value: unknown): string {
 	const extensionIndex = parts.lastIndexOf("extensions");
 	if (extensionIndex >= 0 && parts[extensionIndex + 1]) return parts[extensionIndex + 1]!;
 	const packageIndex = parts.lastIndexOf("node_modules");
-	if (packageIndex >= 0 && parts[packageIndex + 1]) return parts[packageIndex + 1]!;
+	if (packageIndex >= 0 && parts[packageIndex + 1]) {
+		const packageName = parts[packageIndex + 1]!;
+		return packageName.startsWith("@") && parts[packageIndex + 2] ? `${packageName}/${parts[packageIndex + 2]}` : packageName;
+	}
 	return parts.at(-1)?.replace(/\.ts$/, "") || raw;
 }
 
@@ -250,12 +260,12 @@ function buildToolSections(pi: ExtensionAPI): { systemToolsTokens: number; detai
 	};
 }
 
-function buildCommandSections(pi: ExtensionAPI): { commandTokens: number; detailSections: DetailSection[]; allocations: ExtensionAllocation[] } {
+function buildCommandSections(pi: ExtensionAPI): { detailSections: DetailSection[] } {
 	let commands: SlashCommandInfo[] = [];
 	try {
 		commands = pi.getCommands();
 	} catch {
-		return { commandTokens: 0, detailSections: [], allocations: [] };
+		return { detailSections: [] };
 	}
 
 	const skillItems = commands
@@ -268,26 +278,22 @@ function buildCommandSections(pi: ExtensionAPI): { commandTokens: number; detail
 		.sort((a, b) => a.name.localeCompare(b.name))
 		.map((command) => ({ label: command.name, tokens: estimateStringTokens(command.description ?? command.name) }));
 
-	const allocationsByExtension = new Map<string, ExtensionAllocation>();
-	for (const command of commands.filter((command) => command.source === "extension" || command.source === "skill")) {
-		const tokens = estimateStringTokens(command.description ?? command.name);
-		addAllocation(allocationsByExtension, sourceAllocationName(command), "commands", tokens);
-	}
-	const commandTokens = [...skillItems, ...extensionItems].reduce((sum, item) => sum + (item.tokens ?? 0), 0);
 	const sections: DetailSection[] = [];
 	if (skillItems.length) {
 		sections.push({
 			title: "Skills · /skills",
+			subtitle: "Counted once in the Skills system block; not added again here",
 			groups: [{ title: "Available", items: skillItems.slice(0, MAX_DETAIL_ITEMS) }],
 		});
 	}
 	if (extensionItems.length) {
 		sections.push({
 			title: "Extension commands · /",
+			subtitle: "Descriptions shown for reference; not included in provider context",
 			groups: [{ title: "Available", items: extensionItems.slice(0, MAX_DETAIL_ITEMS) }],
 		});
 	}
-	return { commandTokens, detailSections: sections, allocations: Array.from(allocationsByExtension.values()).sort((a, b) => b.tokens - a.tokens) };
+	return { detailSections: sections };
 }
 
 function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): ContextBreakdown | null {
@@ -300,10 +306,12 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 	const commandSections = buildCommandSections(pi);
 
 	let systemPromptTokens = 0;
+	let skillTokens = 0;
 	try {
-		systemPromptTokens = estimateStringTokens(ctx.getSystemPrompt() ?? "");
+		({ system: systemPromptTokens, skills: skillTokens } = splitAvailableSkillsTokens(ctx.getSystemPrompt() ?? ""));
 	} catch {
 		systemPromptTokens = 0;
+		skillTokens = 0;
 	}
 
 	let messageTokens = 0;
@@ -400,7 +408,7 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 		customTokens +
 		compactionTokens +
 		imageTokens +
-		commandSections.commandTokens;
+		skillTokens;
 	const totalTokens = usage.tokens ?? usedEstimateBeforeFree;
 	const freeTokens = Math.max(0, contextWindow - totalTokens);
 
@@ -410,7 +418,7 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 		mk("systemTools", "System tools", toolSections.systemToolsTokens, "⛁", 245),
 		mk("custom", "Custom agents", customTokens, "⛁", 117),
 		mk("compaction", "Compaction summaries", compactionTokens, "⛁", 208),
-		mk("skills", "Skills", commandSections.commandTokens, "⛁", 220),
+		mk("skills", "Skills", skillTokens, "⛁", 220),
 		mk("messages", "Messages", conversationTokens, "⛁", 141),
 		mk("free", "Free space", freeTokens, "⛶", 240),
 	].filter((category): category is Category => category !== null);
@@ -430,7 +438,6 @@ function computeBreakdown(ctx: ExtensionCommandContext, pi: ExtensionAPI): Conte
 		detailSections: [...toolSections.detailSections, ...commandSections.detailSections],
 		extensionAllocations: mergeAllocations(
 			toolSections.allocations,
-			commandSections.allocations,
 			Array.from(customAllocations.values()),
 		),
 	};
