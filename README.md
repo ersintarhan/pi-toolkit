@@ -1,13 +1,15 @@
 # pi-toolkit
 
-All-in-one pi extension toolkit.
+Four things Pi doesn't do on its own, in one extension. **No providers, no runtime dependencies.**
 
-Includes:
-- **Claude OAuth adapter** for Anthropic OAuth sessions
-- **Native web search** with multiple backends + provider override
-- **Context management** (`anchor`, `view`, `pivot`, `recall`)
+| | |
+|---|---|
+| **Claude OAuth adapter** | Makes `/model anthropic/...` work on an Anthropic OAuth session |
+| **Native web search** | `web_search`, `web_fetch`, `/search` — seven backends plus a DuckDuckGo fallback, pinnable per session |
+| **Context management** | `context` tool (`anchor`, `view`, `pivot`, `recall`) plus a bundled skill |
+| **`/usage` and `/context`** | Provider quota and context-window reporting |
 
-> **Note:** This package no longer registers any provider. Pi 0.84 ships native MiniMax and Xiaomi catalogs; use those. For Kimi, install a dedicated provider such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code). CrofAI can be installed from its own package when needed.
+> **Providers:** this package registers none. Pi 0.84 ships native MiniMax and Xiaomi catalogs — use those directly. For Kimi, install a dedicated package such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code); CrofAI likewise has its own. `/usage` still reports quota for all of them. See [Compatibility notes](#compatibility-notes) if you are coming from `xiaomi-mimo`.
 
 ## Install
 
@@ -23,45 +25,38 @@ pi install .
 
 ## What this package does
 
-### 1. Provider migration
-
-This package registers no providers. Pi 0.84 supplies the current native MiniMax and Xiaomi catalogs and streams, so use those directly — models such as `MiniMax-M2.7-highspeed` stay visible without an override.
-
-Native Xiaomi providers: `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, or `xiaomi-token-plan-sgp`.
-
-For Kimi, use an external Kimi provider package (e.g. [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code)).
-
-### 2. Streaming and cache behavior
-
-All providers now use Pi 0.84's maintained streams. The former custom Anthropic SDK stream and its cache overrides have been removed. Anchor caching follows native payload markers and `PI_CACHE_RETENTION`; it does not add caching when Pi supplies no marker or retention is `none`.
-
-### 3. Claude OAuth adapter
+### Claude OAuth adapter
 
 When using `/model anthropic/...` with **Anthropic OAuth**:
 - strips the Claude Code identity block
 - injects the billing header Claude Code expects
 - shows footer status like `✓ Claude OAuth ready/active`
-- docs re-injection is disabled by default
+- docs re-injection is disabled by default (see `PI_CLAUDE_OAUTH_REINJECT_SCOPE`)
 
-### 4. Native search
+It only activates for the `anthropic` provider when OAuth is actually in use, and is otherwise a no-op.
+
+### Native search
 
 Adds:
 - `web_search`
 - `web_fetch`
 - `/search`
 
-Supported native search backends:
+Backends with native search:
 
-| Backend | Search | Fetch | Auth |
-|---|---|---|---|
-| ZAI (GLM) | ✅ | ✅ | `ZAI_API_KEY` |
-| Google Gemini | ✅ | ❌ | `GEMINI_API_KEY` |
-| OpenAI | ✅ | ❌ | `OPENAI_API_KEY` |
-| xAI | ✅ | ❌ | `XAI_API_KEY` |
-| Anthropic | ✅ | ❌ | `ANTHROPIC_API_KEY` |
-| Claude Code bridge | ✅ | ✅ | Claude CLI auth |
-| Codex / ChatGPT | ✅ | ❌ | `codex login` / `~/.codex/auth.json` |
-| Fallback | DuckDuckGo | HTTP fetch | none |
+| Backend | `/search provider` | Search | Fetch | Auth |
+|---|---|:---:|:---:|---|
+| ZAI (GLM) | `zai` | ✅ | — | `ZAI_API_KEY` |
+| Google Gemini | `google` | ✅ | — | `GEMINI_API_KEY` |
+| OpenAI | `openai` | ✅ | — | `OPENAI_API_KEY` |
+| xAI (Grok) | `xai` | ✅ | — | `XAI_API_KEY` |
+| Anthropic | `anthropic` | ✅ | — | `ANTHROPIC_API_KEY` |
+| Claude Code (subscription) | `claude-bridge` | ✅ | ✅ | Claude CLI auth, via a global `pi-claude-bridge` install |
+| Codex (ChatGPT) | `codex` | ✅ | — | `codex login` / `~/.codex/auth.json` |
+
+Anything else — OpenRouter, DeepSeek, Groq, Kimi, MiniMax, Bedrock, Copilot and the rest — is recognized but has no native search, so it falls back to **DuckDuckGo**. A native backend that errors mid-request also falls back rather than failing the tool.
+
+**`web_fetch` is plain HTTP for every backend except `claude-bridge`,** which is the only one with a native fetch path (and it falls back to HTTP if the bridge errors).
 
 You can pin search to a provider independently from the active model.
 
@@ -76,74 +71,38 @@ Examples:
 
 Or choose it from the TUI settings panel with `/search`.
 
-### 5. Context management
+> `claude-bridge` loads `@anthropic-ai/claude-agent-sdk` from a global `pi-claude-bridge` install (or Pi's `extensions/` directory) rather than bundling it. Without that package the backend reports `Could not locate @anthropic-ai/claude-agent-sdk`.
 
-Adds the `context` tool with:
-- `view`
-- `recall`
-- `anchor`
-- `pivot`
+Outbound fetches are checked against private address ranges to block SSRF; set `PI_SEARCH_ALLOW_PRIVATE_HOSTS=1` only if you deliberately need to reach a local host.
 
-Also includes:
-- a human-only TUI footer (`ctx … · anchor:…`) that is never sent to the model
-- tool-result truncation before the last anchor
-- anchor-aware cache support in the integrated context flow
+### Context management
 
-## Provider usage
+Adds the `context` tool with `view`, `recall`, `anchor`, and `pivot`, plus a bundled `context-management` skill that teaches the agent when to use each.
 
-### MiniMax (Pi native)
+- **Anchors** are retrospective checkpoints, stored as ordinary session entries — no side database, so they survive resume and branch navigation.
+- **Tool results before the last anchor are truncated out of the request.** The session file on disk keeps everything, but the running agent cannot pull that text back — there is no expand-back tool. An anchor's summary is the only surviving record of the work before it, which is why the skill insists summaries capture outcomes rather than topics.
+- **`recall`** searches anchors across past sessions, scoped to the current cwd by default.
+- **Anchor-aware prompt caching:** on Anthropic, the rolling cache marker is shifted onto the last anchor's block instead of a new marker being added, so truncation stops invalidating the prefix every turn. It follows Pi's own payload markers and `PI_CACHE_RETENTION`, and adds nothing when Pi supplies no marker or retention is `none`.
+- A human-only TUI footer (`ctx … · anchor:…`) that is never sent to the model.
 
-```bash
-/model minimax/MiniMax-M2.7
-/model minimax/MiniMax-M2.7-highspeed
-```
+### `/usage`
 
-Requires `MINIMAX_API_KEY`.
+Shows quota / plan usage for the active provider. Works for providers this package does not register — install the provider you want, `/usage` still reports it.
 
-### Xiaomi MiMo (Pi native)
+| Provider | Credential | Endpoint |
+|---|---|---|
+| `kimi-coding` | `KIMI_API_KEY`, or Pi's stored OAuth credential | `api.kimi.com/coding/v1/usages` |
+| `minimax` | `MINIMAX_API_KEY` | `api.minimax.io/v1/token_plan/remains` |
+| `xiaomi`, `xiaomi-token-plan-{cn,ams,sgp}` | `XIAOMI_MIMO_SESSION_COOKIE` | `platform.xiaomimimo.com/api/v1/tokenPlan/usage` |
+| `crofai` | `CROFAI_API_KEY` | `crof.ai/usage_api/` |
 
-Use `xiaomi` with `XIAOMI_API_KEY`, or a regional token-plan provider:
-
-- `xiaomi-token-plan-cn` / `XIAOMI_TOKEN_PLAN_CN_API_KEY`
-- `xiaomi-token-plan-ams` / `XIAOMI_TOKEN_PLAN_AMS_API_KEY`
-- `xiaomi-token-plan-sgp` / `XIAOMI_TOKEN_PLAN_SGP_API_KEY`
-
-### Kimi
-
-The `kimi-coding` provider is no longer bundled. Install a dedicated Kimi provider package, for example:
-
-```bash
-pi install npm:pi-provider-kimi-code
-# or via local path
-pi -e /path/to/pi-provider-kimi-code
-```
-
-Then select Kimi as usual:
-
-```bash
-/model kimi-for-coding
-```
-
-> The upstream [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code) package is actively maintained and supports Kimi model discovery, OAuth, file uploads, and Kimi-specific payload mutations.
-
-## `/usage` command
-
-Shows quota / plan usage for the active provider.
-
-Supported:
-
-| Provider | Endpoint |
-|---|---|
-| `minimax` | `https://api.minimax.io/v1/token_plan/remains` |
-| `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, `xiaomi-token-plan-sgp` | `https://platform.xiaomimimo.com/api/v1/tokenPlan/usage` |
-
-Examples:
+> The Xiaomi plan-usage endpoint sits behind Xiaomi SSO and rejects the `tp-...` API key, so it needs a browser session cookie rather than a key. To get it: open <https://platform.xiaomimimo.com>, DevTools → Network → copy the `Cookie` request header, then `export XIAOMI_MIMO_SESSION_COOKIE='<paste>'`.
 
 ```bash
 /usage
 ```
 
-## `/context` command
+### `/context`
 
 Shows current context-window usage without adding the generated report to future LLM context.
 
@@ -163,10 +122,10 @@ Example:
 
 ## Search override examples
 
-Use MiniMax for coding, but ZAI for search:
+Search is independent of the active model — code with one provider, search with another:
 
 ```bash
-/model minimax/MiniMax-M2.7-highspeed
+/model anthropic/claude-sonnet-4-6
 /search provider zai
 ```
 
@@ -198,39 +157,79 @@ context(pivot, target="search-setup", carryover="Search override is stable; Clau
 
 ## Environment summary
 
-Common env vars:
+Everything this package reads. Provider API keys are Pi's business, not this package's — the only credentials here are the ones `/usage` needs.
 
 ```bash
-# MiniMax
-export MINIMAX_API_KEY=...
-
-# Xiaomi MiMo (Pi native)
-export XIAOMI_API_KEY=...
-export XIAOMI_TOKEN_PLAN_CN_API_KEY=...
-export XIAOMI_TOKEN_PLAN_AMS_API_KEY=...
-export XIAOMI_TOKEN_PLAN_SGP_API_KEY=...
-
-# Search backends
+# Search backends (pick the ones you use)
 export ZAI_API_KEY=...
 export GEMINI_API_KEY=...
 export OPENAI_API_KEY=...
 export XAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
+# claude-bridge uses the Claude CLI's own auth; codex uses `codex login`.
 
-# Pi prompt-cache retention (anchor cache follows native payload markers)
-export PI_CACHE_RETENTION=long # long, short, or none
-# Legacy explicit override, retained for compatibility
-export PI_ANCHOR_CACHE_TTL=1h # 1h or 5m
+# /usage credentials
+export KIMI_API_KEY=...                  # or rely on Pi's stored OAuth credential
+export MINIMAX_API_KEY=...
+export XIAOMI_MIMO_SESSION_COOKIE=...    # browser SSO cookie, not the tp-... key
+export CROFAI_API_KEY=...
+
+# Prompt-cache retention (the anchor cache follows Pi's payload markers)
+export PI_CACHE_RETENTION=long           # long | short | none
+export PI_ANCHOR_CACHE_TTL=1h            # explicit override: 1h | 5m
 ```
+
+<details>
+<summary>Claude OAuth adapter tuning</summary>
+
+```bash
+# Docs re-injection. Disabled by default: the docs block is stripped from the
+# system prompt every turn, saving tokens and a cache breakpoint.
+export PI_CLAUDE_OAUTH_REINJECT_SCOPE=never   # never | always | pi-only
+export PI_CLAUDE_OAUTH_REINJECT_MODE=prepend-custom-message
+                                              # none | prepend-custom-message
+                                              # append-custom-message | user-reminder
+export PI_CLAUDE_OAUTH_DOCS_FILE=/path/to/docs.md   # fallback docs source
+export PI_CLAUDE_OAUTH_LOG_FILE=/path/to/adapter.log
+
+# Identity the adapter reports upstream (falls back to CLAUDE_CODE_* if unset).
+export PI_CLAUDE_CODE_ENTRYPOINT=...
+export PI_CLAUDE_CODE_VERSION=...
+```
+
+</details>
+
+<details>
+<summary>Debugging and escape hatches</summary>
+
+```bash
+export PI_DEBUG=1                        # mirror toolkit logs to stderr
+export PI_TOOLKIT_DEBUG=1                # same, toolkit-scoped
+export PI_ANCHOR_CACHE_DEBUG=1           # log cache-marker layout per request
+export PI_ANCHOR_CACHE_MARKER_BUDGET=4   # 1-4; Anthropic hard-fails at 5 markers
+export PI_SEARCH_ALLOW_PRIVATE_HOSTS=1   # disable the SSRF guard on web_fetch
+```
+
+Logs are written per namespace to `<agent-dir>/logs/<namespace>.log`, honoring Pi's `PI_CODING_AGENT_DIR`.
+
+</details>
 
 ## Compatibility notes
 
-- The `minimax` and `xiaomi-mimo` registrations were removed in v0.9.0; this package no longer registers providers. Migrate to Pi's native `minimax`, `xiaomi`, or a regional `xiaomi-token-plan-*`. `XIAOMI_TOKEN_PLAN_API_KEY` and `XIAOMI_MIMO_BASE_URL` are no longer read.
-- Do **not** install older overlapping Kimi provider forks at the same time as a dedicated Kimi provider package.
+- **Coming from `xiaomi-mimo` or the bundled `minimax`?** Both registrations were removed in v0.9.0. Switch to Pi's native providers:
+
+  | Was | Use instead |
+  | --- | --- |
+  | `minimax/*` | `minimax/*` (Pi native) |
+  | `xiaomi-mimo/mimo-v2.5` | `xiaomi/*` |
+  | `xiaomi-mimo/*` (regional) | `xiaomi-token-plan-{cn,ams,sgp}/*` |
+
+  `XIAOMI_TOKEN_PLAN_API_KEY` and `XIAOMI_MIMO_BASE_URL` are no longer read.
+- `kimi-coding` and `crofai` were removed in v0.7.2. Install dedicated provider packages; `/usage` still reports both.
+- Do **not** install older overlapping Kimi provider forks alongside a dedicated Kimi provider package.
 - Local `pi -e ...` development may behave differently from installed npm packages for skill loading.
 - Codex search requires `codex login` first.
-- Claude OAuth adapter only activates for the `anthropic` provider when OAuth is actually in use.
-- The `kimi-coding` and `crofai` providers were removed in v0.7.2. Use dedicated provider packages for them.
+- Requires Pi 0.84+ (`pi-ai`, `pi-coding-agent`, `pi-tui`).
 
 ## Changelog
 
