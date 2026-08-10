@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.1
+
+Documentation only — no code changes. Published so the corrected README reaches
+npm, where the package page renders from the released tarball.
+
+### Documentation
+
+- **The documented Xiaomi credentials for `/usage` were wrong.** The README
+  listed `XIAOMI_API_KEY` and three `XIAOMI_TOKEN_PLAN_*_API_KEY` variables that
+  nothing in this package reads, and omitted `XIAOMI_MIMO_SESSION_COOKIE`, which
+  is what `/usage` actually requires — the plan-usage endpoint sits behind Xiaomi
+  SSO and rejects the `tp-...` key. Following the old README could not work.
+- The `/usage` table was missing `kimi-coding` and `crofai`, both still
+  supported even though neither provider is registered here.
+- The search table credited ZAI with native fetch. `claude-bridge` is the only
+  backend with a native fetch path; everything else uses plain HTTP.
+- `claude-bridge` resolves `@anthropic-ai/claude-agent-sdk` from a global
+  `pi-claude-bridge` install rather than bundling it. That requirement was
+  undocumented.
+- Document the rest of the environment surface: `PI_SEARCH_ALLOW_PRIVATE_HOSTS`,
+  the four `PI_CLAUDE_OAUTH_*` knobs, `PI_ANCHOR_CACHE_DEBUG`,
+  `PI_ANCHOR_CACHE_MARKER_BUDGET`, and `PI_DEBUG` / `PI_TOOLKIT_DEBUG`.
+- State the context-management tradeoff plainly: truncation is one-way for the
+  running session, so an anchor's summary is the only surviving record of the
+  work before it.
+- Drop the "Provider usage" section and two duplicate copies of the migration
+  note. It documented other packages' providers and model IDs that go stale.
+
 ## 0.9.0
 
 The toolkit stops being a provider package. Pi 0.84 ships native MiniMax and
