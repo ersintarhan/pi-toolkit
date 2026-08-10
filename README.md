@@ -225,7 +225,7 @@ export PI_ANCHOR_CACHE_TTL=1h # 1h or 5m
 
 ## Compatibility notes
 
-- `xiaomi-mimo` is gone. Migrate those selections and credentials to a Pi-native Xiaomi provider (`xiaomi` or a regional `xiaomi-token-plan-*`).
+- The `minimax` and `xiaomi-mimo` registrations were removed in v0.9.0; this package no longer registers providers. Migrate to Pi's native `minimax`, `xiaomi`, or a regional `xiaomi-token-plan-*`. `XIAOMI_TOKEN_PLAN_API_KEY` and `XIAOMI_MIMO_BASE_URL` are no longer read.
 - Do **not** install older overlapping Kimi provider forks at the same time as a dedicated Kimi provider package.
 - Local `pi -e ...` development may behave differently from installed npm packages for skill loading.
 - Codex search requires `codex login` first.
@@ -234,14 +234,7 @@ export PI_ANCHOR_CACHE_TTL=1h # 1h or 5m
 
 ## Changelog
 
-- **0.5.9** — Enforce Anthropic cache-control marker budget; lower default anchor-cache budget to 3.
-- **0.5.8** — Stop copying `cache_control` onto synthetic Claude OAuth prompt block; strip foreign thinking signatures on provider switch.
-- **0.5.7** — Guard Kimi stream bootstrap; restrict native web fetch to `http`/`https`.
-- **0.5.6** — Show `toolShare=` only when tool-output share exceeds 50%.
-- **0.5.5** — Add `/context` command for context-window usage reporting.
-- **0.5.4** — Initial public release of `@ersintarhan/pi-toolkit`.
-
-Full details: [CHANGELOG.md](./CHANGELOG.md).
+See [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
