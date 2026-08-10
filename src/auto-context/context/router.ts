@@ -130,7 +130,7 @@ export function registerContextRouter(pi: ExtensionAPI) {
 					const limit = Math.max(0, Math.trunc(params.limit ?? 10));
 					const offset = Math.max(0, Math.trunc(params.offset ?? 0));
 					const scope = (params.scope ?? "cwd") as "cwd" | "all";
-					const matches = await scanAnchors(params.keyword, scope, ctx.cwd, limit, offset, signal, ctx.sessionManager.getSessionDir());
+					const matches = await scanAnchors(params.keyword, scope, ctx.cwd, limit, offset, signal);
 
 					if (matches.length === 0) {
 						return {

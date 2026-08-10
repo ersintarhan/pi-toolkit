@@ -28,12 +28,16 @@ function listJsonlFiles(dir: string): SessionFile[] {
 	return sessions;
 }
 
-/** Return session files sorted newest-first by mtime. */
-function listSessionFiles(scope: "cwd" | "all", sessionDir?: string): SessionFile[] {
-	if (scope === "cwd" && sessionDir) {
-		return listJsonlFiles(sessionDir).sort((a, b) => b.mtime - a.mtime);
-	}
-
+/**
+ * Return every session file, sorted newest-first by mtime.
+ *
+ * Deliberately not narrowed to the active session directory. Pi derives that
+ * directory name by encoding the cwd, and the encoding has changed between
+ * releases, so one cwd can own several directories on disk. Scanning them all
+ * and matching on the recorded header cwd is the only way a `cwd`-scoped recall
+ * sees sessions written by an older Pi. `peekSessionCwd` keeps that cheap.
+ */
+function listSessionFiles(): SessionFile[] {
 	const sessionsDir = getSessionsDir();
 	let subdirs: string[];
 	try { subdirs = fs.readdirSync(sessionsDir); } catch { return []; }
@@ -65,6 +69,44 @@ function abortError(): Error {
 	return error;
 }
 
+// A session header is the first line of the file, so a bounded read is enough to
+// learn its cwd. Pi itself reads headers with a 4KB buffer; an entry that still
+// does not fit degrades to "unknown", never to a wrong answer.
+const HEADER_READ_BYTES = 4096;
+
+/**
+ * Session cwd without parsing the whole file: cached metadata when fresh, else a
+ * bounded read of the header line.
+ *
+ * Returns undefined when the cwd cannot be established (unreadable file, header
+ * larger than the bounded read, malformed JSON). Callers must treat undefined as
+ * "unknown" and fall through to the authoritative full parse.
+ */
+function peekSessionCwd(file: string, mtime: number): string | undefined {
+	const cached = _anchorCache.get(file);
+	if (cached && cached.mtime === mtime) return cached.cwd;
+
+	let fd: number | undefined;
+	try {
+		fd = fs.openSync(file, "r");
+		const buf = Buffer.alloc(HEADER_READ_BYTES);
+		const read = fs.readSync(fd, buf, 0, HEADER_READ_BYTES, 0);
+		const chunk = buf.subarray(0, read).toString("utf-8");
+		const newline = chunk.indexOf("\n");
+		// Without a newline the header line was cut off mid-JSON, so we cannot tell
+		// whether it matches. Report unknown instead of guessing.
+		if (newline < 0) return undefined;
+		const header = JSON.parse(chunk.slice(0, newline));
+		return typeof header?.cwd === "string" ? header.cwd : undefined;
+	} catch {
+		return undefined;
+	} finally {
+		if (fd !== undefined) {
+			try { fs.closeSync(fd); } catch { /* best effort */ }
+		}
+	}
+}
+
 export async function scanAnchors(
 	keyword: string,
 	scope: "cwd" | "all",
@@ -72,7 +114,6 @@ export async function scanAnchors(
 	limit = 10,
 	offset = 0,
 	signal?: AbortSignal,
-	sessionDir?: string,
 ): Promise<AnchorScanResult[]> {
 	if (signal?.aborted) throw abortError();
 	if (limit <= 0) return [];
@@ -83,10 +124,18 @@ export async function scanAnchors(
 		const value = Date.parse(ts);
 		return Number.isFinite(value) ? value : 0;
 	};
-	const files = listSessionFiles(scope, sessionDir);
+	const files = listSessionFiles();
 
 	for (const { file, mtime } of files) {
 		if (signal?.aborted) throw abortError();
+
+		// Reject non-matching sessions from the header alone, so a cwd-scoped recall
+		// never streams (or caches) unrelated projects' sessions. The check below
+		// stays authoritative for headers this cannot read.
+		if (scope === "cwd") {
+			const peeked = peekSessionCwd(file, mtime);
+			if (peeked !== undefined && peeked !== cwd) continue;
+		}
 
 		const cached = await loadSessionAnchors(file, mtime, signal);
 		if (scope === "cwd" && cached.cwd !== cwd) continue;
@@ -108,11 +157,9 @@ export async function scanAnchors(
 		}
 	}
 
-	if (scope === "all") {
-		const existing = new Set(files.map(({ file }) => file));
-		for (const file of _anchorCache.keys()) {
-			if (!existing.has(file)) _anchorCache.delete(file);
-		}
+	const existing = new Set(files.map(({ file }) => file));
+	for (const file of _anchorCache.keys()) {
+		if (!existing.has(file)) _anchorCache.delete(file);
 	}
 
 	results.sort((a, b) => timeValue(b.timestamp) - timeValue(a.timestamp));
@@ -121,10 +168,10 @@ export async function scanAnchors(
 
 // ── Anchor cache ────────────────────────────────────
 // Caches small parsed anchor metadata per session file. mtime invalidates
-// appended sessions; a completed all-scope scan prunes files removed on disk.
+// appended sessions; every completed scan prunes files removed on disk.
 // ponytail: Deliberately no numeric LRU cap—the old cap caused full sequential
-// scans to thrash. Add per-cwd pruning only if one process starts visiting many
-// changing session roots; normal Pi sessions keep a stable cwd.
+// scans to thrash. Only cwd-matching sessions are ever parsed and stored, so the
+// map tracks the projects actually recalled, not every session on disk.
 
 interface CachedAnchorEntry {
 	anchorId: string;

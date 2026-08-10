@@ -10,8 +10,19 @@ import { scanAnchors } from "../src/auto-context/utils";
 const tempDirs: string[] = [];
 afterEach(() => {
 	clearCommandContext();
+	delete process.env.PI_CODING_AGENT_DIR;
 	for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+/** Create an agent dir, point Pi at it, and return its sessions/ path. */
+function agentSessionsDir(): string {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-recall-"));
+	tempDirs.push(agentDir);
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	const sessionsDir = join(agentDir, "sessions");
+	mkdirSync(sessionsDir, { recursive: true });
+	return sessionsDir;
+}
 
 function entry(value: unknown): string {
 	return `${JSON.stringify(value)}\n`;
@@ -31,35 +42,29 @@ function anchor(id: string, name: string, summary: string, timestamp: string): s
 }
 
 describe("scanAnchors", () => {
-	test("scans only the supplied cwd session directory and invalidates cache on append", async () => {
-		const root = mkdtempSync(join(tmpdir(), "pi-recall-"));
-		tempDirs.push(root);
-		const sessionDir = join(root, "active");
-		const siblingDir = join(root, "other");
-		mkdirSync(sessionDir);
-		mkdirSync(siblingDir);
-		mkdirSync(join(sessionDir, "nested"));
-		const cwd = "/work/project";
+	const cwd = "/work/project";
+
+	test("returns this cwd's anchors newest-first and invalidates cache on append", async () => {
+		const sessionsDir = agentSessionsDir();
+		const sessionDir = join(sessionsDir, "--work-project--");
+		mkdirSync(join(sessionDir, "nested"), { recursive: true });
 		const first = join(sessionDir, "first.jsonl");
-		const second = join(sessionDir, "second.jsonl");
 
 		writeFileSync(first,
 			entry({ type: "session", id: "session-1", cwd }) +
 			entry({ type: "message", message: { role: "user", content: "x".repeat(1024 * 1024) } }) +
 			anchor("anchor-old", "deploy-start", "Needle in summary", "2025-01-01T00:00:00Z"),
 		);
-		writeFileSync(second,
+		writeFileSync(join(sessionDir, "second.jsonl"),
 			entry({ type: "session", id: "session-2", cwd }) +
 			anchor("anchor-new", "needle-finish", "Done", "2025-02-01T00:00:00Z"),
 		);
-		writeFileSync(join(siblingDir, "outside.jsonl"),
-			entry({ type: "session", id: "outside", cwd }) + anchor("outside", "needle-outside", "outside", "2026-01-01T00:00:00Z"),
-		);
+		// Session directories are scanned one level deep, matching how Pi lays them out.
 		writeFileSync(join(sessionDir, "nested", "nested.jsonl"),
 			entry({ type: "session", id: "nested", cwd }) + anchor("nested", "needle-nested", "nested", "2026-01-01T00:00:00Z"),
 		);
 
-		const initial = await scanAnchors("needle", "cwd", cwd, 10, 0, undefined, sessionDir);
+		const initial = await scanAnchors("needle", "cwd", cwd);
 		expect(initial.map(result => result.anchorId)).toEqual(["anchor-new", "anchor-old"]);
 		expect(initial[0]).toMatchObject({
 			sessionId: "session-2",
@@ -71,14 +76,66 @@ describe("scanAnchors", () => {
 		appendFileSync(first, anchor("anchor-appended", "needle-latest", "Appended", "2025-03-01T00:00:00Z"));
 		const future = new Date(Date.now() + 2_000);
 		utimesSync(first, future, future);
-		const updated = await scanAnchors("needle", "cwd", cwd, 10, 0, undefined, sessionDir);
+		const updated = await scanAnchors("needle", "cwd", cwd);
 		expect(updated.map(result => result.anchorId)).toEqual(["anchor-appended", "anchor-new", "anchor-old"]);
+	});
+
+	test("excludes sessions recorded against a different cwd", async () => {
+		const sessionsDir = agentSessionsDir();
+		const mine = join(sessionsDir, "--work-project--");
+		const theirs = join(sessionsDir, "--work-other--");
+		mkdirSync(mine, { recursive: true });
+		mkdirSync(theirs, { recursive: true });
+		writeFileSync(join(mine, "a.jsonl"),
+			entry({ type: "session", id: "mine", cwd }) + anchor("a", "needle-mine", "mine", "2026-01-01T00:00:00Z"));
+		writeFileSync(join(theirs, "b.jsonl"),
+			entry({ type: "session", id: "theirs", cwd: "/work/other" }) + anchor("b", "needle-theirs", "theirs", "2026-01-01T00:00:00Z"));
+
+		const scoped = await scanAnchors("needle", "cwd", cwd);
+		expect(scoped.map(result => result.anchorName)).toEqual(["needle-mine"]);
+
+		const everything = await scanAnchors("needle", "all", cwd);
+		expect(everything.map(result => result.anchorName).sort()).toEqual(["needle-mine", "needle-theirs"]);
+	});
+
+	// Pi encodes the cwd into the session directory name and that encoding has
+	// changed between releases, so one cwd can own several directories. Narrowing
+	// the scan to the active directory silently hides the older ones.
+	test("finds this cwd's sessions under a differently-encoded directory", async () => {
+		const sessionsDir = agentSessionsDir();
+		const current = join(sessionsDir, "--work-project--");
+		const legacy = join(sessionsDir, "~-work-project");
+		mkdirSync(current, { recursive: true });
+		mkdirSync(legacy, { recursive: true });
+		writeFileSync(join(current, "a.jsonl"),
+			entry({ type: "session", id: "current", cwd }) + anchor("a", "needle-current", "current", "2026-01-01T00:00:00Z"));
+		writeFileSync(join(legacy, "b.jsonl"),
+			entry({ type: "session", id: "legacy", cwd }) + anchor("b", "needle-legacy", "legacy", "2025-01-01T00:00:00Z"));
+
+		const found = await scanAnchors("needle", "cwd", cwd);
+
+		expect(found.map(result => result.anchorName)).toEqual(["needle-current", "needle-legacy"]);
+	});
+
+	// A header too large for the bounded probe reports an unknown cwd, which must
+	// fall through to the full parse rather than dropping the session.
+	test("finds sessions whose header exceeds the bounded probe", async () => {
+		const sessionsDir = agentSessionsDir();
+		const dir = join(sessionsDir, "--work-project--");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "a.jsonl"),
+			entry({ type: "session", id: "padded", cwd, pad: "x".repeat(8192) }) +
+			anchor("a", "needle-padded", "padded", "2026-01-01T00:00:00Z"));
+
+		const found = await scanAnchors("needle", "cwd", cwd);
+
+		expect(found.map(result => result.anchorName)).toEqual(["needle-padded"]);
 	});
 
 	test("throws AbortError for a pre-aborted scan", async () => {
 		const controller = new AbortController();
 		controller.abort();
-		await expect(scanAnchors("anything", "cwd", "/work", 10, 0, controller.signal, tmpdir()))
+		await expect(scanAnchors("anything", "cwd", "/work", 10, 0, controller.signal))
 			.rejects.toMatchObject({ name: "AbortError" });
 	});
 });
