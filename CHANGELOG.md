@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 The toolkit stops being a provider package. Pi 0.84 ships native MiniMax and
 Xiaomi catalogs, so everything provider-shaped is gone and what remains is the
