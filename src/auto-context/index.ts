@@ -17,8 +17,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { patchBindCommandContext, runPending, clearCommandContext, isArmed, hasPending, getActivePivot } from "./command-actions.js";
-import { isAnchorEntry, isAnchorToolResult, anchorNameOf } from "./context/anchors.js";
+import { isAnchorEntry, anchorNameOf } from "./context/anchors.js";
 import { registerContextRouter } from "./context/router.js";
+import { thinBeforeLastAnchor } from "./context/thin.js";
 import registerAnchorCache from "./anchor-cache/index.js";
 import { createLogger } from "../logger.js";
 
@@ -56,36 +57,7 @@ export default function (pi: ExtensionAPI) {
 		const messages = event.messages;
 		if (!messages || messages.length === 0) return;
 
-		let modified = false;
-
-		// Find the last anchor index in AgentMessage[] by toolResult details
-		let lastAnchorIdx = -1;
-		for (let i = messages.length - 1; i >= 0; i--) {
-			if (isAnchorToolResult(messages[i])) {
-				lastAnchorIdx = i;
-				break;
-			}
-		}
-
-		// Truncate tool results before the last anchor (skip anchor toolResults themselves)
-		if (lastAnchorIdx > 0) {
-			for (let i = 0; i < lastAnchorIdx; i++) {
-				const m = messages[i] as any;
-				if (m.role === "toolResult" && !isAnchorToolResult(m)) {
-					if (typeof m.content === "string" && m.content.length > 50) {
-						m.content = m.content.slice(0, 20) + `…✂${m.content.length}`;
-						modified = true;
-					} else if (Array.isArray(m.content)) {
-						for (const part of m.content) {
-							if (part.type === "text" && part.text && part.text.length > 50) {
-								part.text = part.text.slice(0, 20) + `…✂${part.text.length}`;
-								modified = true;
-							}
-						}
-					}
-				}
-			}
-		}
+		const modified = thinBeforeLastAnchor(messages);
 
 		// Human-facing footer status; never injected into the transcript or editor.
 		const currentModel = ctx.model;

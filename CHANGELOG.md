@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Anchor truncation now drops reasoning from finished turns**, not just tool
+  results. Old thinking is the noisiest thing left in the window: it is high
+  volume, it is in the model's own voice, and it carries the dead ends the model
+  already abandoned — which is exactly the residue that survived tool-result
+  truncation. Measured over 33 real sessions, this roughly doubles what an
+  anchor reclaims on `anthropic-messages` providers (−23.5% → −45.0% of
+  conversation payload; Kimi and GLM land in the same range).
+
+  Only entries ahead of the last anchor are touched, so the live tool-use loop
+  is untouched. Anthropic requires a thinking block on the *final* assistant
+  message, ahead of the lastmost `tool_use`/`tool_result` pair; blocks from
+  earlier turns are recommended, not required. Blocks are removed whole rather
+  than truncated, because the signature authenticates the content — a rewritten
+  block is rejected, an absent one is not. A thinking-only assistant message is
+  left alone, since emptying it would make the turn invalid.
+
+  The point is attention rather than cost: a window half-filled with the model's
+  own discarded reasoning reaches the compaction threshold twice as fast, and
+  compaction is the lossy lever.
+
 ## 0.9.1
 
 Documentation only — no code changes. Published so the corrected README reaches
