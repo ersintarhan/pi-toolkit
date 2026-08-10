@@ -4,13 +4,13 @@
 
 ### Changed
 
-- Return MiniMax and Xiaomi requests to Pi 0.84's native provider catalogs and streams; the toolkit no longer overrides `minimax`.
-- Keep `xiaomi-mimo` for one release as a deprecated compatibility alias exposing only `mimo-v2.5` and `mimo-v2.5-pro` with current metadata.
+- **Remove all bundled providers.** Pi 0.84 ships native MiniMax and Xiaomi catalogs and streams, so the toolkit no longer registers `minimax` or `xiaomi-mimo`. Migrate `xiaomi-mimo` selections to `xiaomi` or a regional `xiaomi-token-plan-*` provider.
 - Map native Xiaomi provider IDs to the existing `/usage` fetcher.
 - Remove the 875-line custom Anthropic stream and direct `@anthropic-ai/sdk` dependency. The Claude OAuth adapter remains enabled and unchanged.
 
 ### Fixed
 
+- Keep `recall` scoped by the session's recorded cwd rather than the active session directory, so sessions written under an older cwd-encoding scheme stay visible. A bounded header probe keeps the wider scan cheap.
 - Correct native search fallback/provider selection and hot-reload-safe context command state.
 - Clamp `/usage` rendering to narrow terminals and correct `/context` skill/source accounting.
 - Bound context-tool text inputs and honor `PI_CODING_AGENT_DIR` for toolkit logs.

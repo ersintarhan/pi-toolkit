@@ -12,9 +12,7 @@
 		"web-search",
 		"web-fetch",
 		"search",
-		"context-management",
-		"xiaomi",
-		"mimo"
+		"context-management"
 	],
 	"author": "Ersin Tarhan <ersintarhan@gmail.com>",
 	"license": "MIT",

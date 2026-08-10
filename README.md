@@ -4,11 +4,10 @@ All-in-one pi extension toolkit.
 
 Includes:
 - **Claude OAuth adapter** for Anthropic OAuth sessions
-- **One-release compatibility alias**: deprecated `xiaomi-mimo`
 - **Native web search** with multiple backends + provider override
 - **Context management** (`anchor`, `view`, `pivot`, `recall`)
 
-> **Note:** The `kimi-coding` and `crofai` providers have been moved out of this package. For Kimi, install the dedicated provider such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code). CrofAI can be installed from its own package when needed.
+> **Note:** This package no longer registers any provider. Pi 0.84 ships native MiniMax and Xiaomi catalogs; use those. For Kimi, install a dedicated provider such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code). CrofAI can be installed from its own package when needed.
 
 ## Install
 
@@ -26,15 +25,15 @@ pi install .
 
 ### 1. Provider migration
 
-Pi 0.84 supplies the current native MiniMax and Xiaomi catalogs and streams. This package no longer overrides `minimax`; use Pi's native provider so models such as `MiniMax-M2.7-highspeed` remain visible.
+This package registers no providers. Pi 0.84 supplies the current native MiniMax and Xiaomi catalogs and streams, so use those directly — models such as `MiniMax-M2.7-highspeed` stay visible without an override.
 
-Native Xiaomi providers are recommended: `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, or `xiaomi-token-plan-sgp`. The package registers only `xiaomi-mimo` as a deprecated, one-release compatibility alias. It uses Pi's native `anthropic-messages` stream and exposes only `mimo-v2.5` and `mimo-v2.5-pro`.
+Native Xiaomi providers: `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, or `xiaomi-token-plan-sgp`.
 
 For Kimi, use an external Kimi provider package (e.g. [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code)).
 
 ### 2. Streaming and cache behavior
 
-MiniMax, native Xiaomi, and the compatibility alias use Pi 0.84's maintained provider streams. The former custom Anthropic SDK stream and its cache overrides have been removed. Anchor caching follows native payload markers and `PI_CACHE_RETENTION`; it does not add caching when Pi supplies no marker or retention is `none`.
+All providers now use Pi 0.84's maintained streams. The former custom Anthropic SDK stream and its cache overrides have been removed. Anchor caching follows native payload markers and `PI_CACHE_RETENTION`; it does not add caching when Pi supplies no marker or retention is `none`.
 
 ### 3. Claude OAuth adapter
 
@@ -101,22 +100,13 @@ Also includes:
 
 Requires `MINIMAX_API_KEY`.
 
-### Xiaomi MiMo (Pi native, recommended)
+### Xiaomi MiMo (Pi native)
 
 Use `xiaomi` with `XIAOMI_API_KEY`, or a regional token-plan provider:
 
 - `xiaomi-token-plan-cn` / `XIAOMI_TOKEN_PLAN_CN_API_KEY`
 - `xiaomi-token-plan-ams` / `XIAOMI_TOKEN_PLAN_AMS_API_KEY`
 - `xiaomi-token-plan-sgp` / `XIAOMI_TOKEN_PLAN_SGP_API_KEY`
-
-The deprecated `xiaomi-mimo` alias remains for one release:
-
-```bash
-/model xiaomi-mimo/mimo-v2.5
-/model xiaomi-mimo/mimo-v2.5-pro
-```
-
-It preserves `XIAOMI_TOKEN_PLAN_API_KEY`, optional `XIAOMI_MIMO_BASE_URL`, and the Singapore Anthropic-compatible default endpoint. Migrate to a native provider above; old V2 models are no longer exposed.
 
 ### Kimi
 
@@ -145,7 +135,7 @@ Supported:
 | Provider | Endpoint |
 |---|---|
 | `minimax` | `https://api.minimax.io/v1/token_plan/remains` |
-| `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, `xiaomi-token-plan-sgp`, `xiaomi-mimo` | `https://platform.xiaomimimo.com/api/v1/tokenPlan/usage` |
+| `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, `xiaomi-token-plan-sgp` | `https://platform.xiaomimimo.com/api/v1/tokenPlan/usage` |
 
 Examples:
 
@@ -214,15 +204,11 @@ Common env vars:
 # MiniMax
 export MINIMAX_API_KEY=...
 
-# Xiaomi MiMo (native providers recommended)
+# Xiaomi MiMo (Pi native)
 export XIAOMI_API_KEY=...
 export XIAOMI_TOKEN_PLAN_CN_API_KEY=...
 export XIAOMI_TOKEN_PLAN_AMS_API_KEY=...
 export XIAOMI_TOKEN_PLAN_SGP_API_KEY=...
-
-# Deprecated xiaomi-mimo compatibility alias (one release)
-export XIAOMI_TOKEN_PLAN_API_KEY=...
-export XIAOMI_MIMO_BASE_URL=...
 
 # Search backends
 export ZAI_API_KEY=...
@@ -239,7 +225,7 @@ export PI_ANCHOR_CACHE_TTL=1h # 1h or 5m
 
 ## Compatibility notes
 
-- Migrate `xiaomi-mimo` selections and credentials to a Pi-native Xiaomi provider; the alias is deprecated and retained for one release only.
+- `xiaomi-mimo` is gone. Migrate those selections and credentials to a Pi-native Xiaomi provider (`xiaomi` or a regional `xiaomi-token-plan-*`).
 - Do **not** install older overlapping Kimi provider forks at the same time as a dedicated Kimi provider package.
 - Local `pi -e ...` development may behave differently from installed npm packages for skill loading.
 - Codex search requires `codex login` first.

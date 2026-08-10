@@ -4,7 +4,7 @@
  * Dispatches by ctx.model.provider:
  *   - kimi-coding  → https://api.kimi.com/coding/v1/usages (KIMI_API_KEY or OAuth)
  *   - minimax      → https://api.minimax.io/v1/token_plan/remains (MINIMAX_API_KEY)
- *   - xiaomi / Xiaomi regional IDs / legacy xiaomi-mimo
+ *   - xiaomi / Xiaomi regional IDs
  *                  → https://platform.xiaomimimo.com/api/v1/tokenPlan/usage
  *                    (XIAOMI_MIMO_SESSION_COOKIE — browser SSO cookie; the
  *                    tp-... API key is rejected by this endpoint)
@@ -522,7 +522,6 @@ const FETCHERS: Record<string, () => Promise<UsagePanelData>> = {
   "xiaomi-token-plan-cn": fetchMimoUsage,
   "xiaomi-token-plan-ams": fetchMimoUsage,
   "xiaomi-token-plan-sgp": fetchMimoUsage,
-  "xiaomi-mimo": fetchMimoUsage,
 };
 
 const SUPPORTED = Object.keys(FETCHERS).sort();
