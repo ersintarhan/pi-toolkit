@@ -11,7 +11,7 @@ Manage your own context window proactively. Read the conversation for signals of
 
 Your session is an **append-only tape** forming a tree. **Anchors** mark past state at meaningful boundaries (retrospective only, not todos). Changing direction is a **pivot** within a session — jump back to an earlier anchor and carry forward the lessons.
 
-Tool results older than the last anchor are auto-truncated; anchors themselves stay verbatim. Inline signals throughout this skill reference `context=` / `tool=` / `anchor=` from the pi-auto-context status line.
+Tool results older than the last anchor are auto-truncated; anchors themselves stay verbatim. Context usage and the current anchor appear only in the human-facing footer; use semantic milestone signals below rather than expecting model-facing status injection.
 
 ## Core Loop
 

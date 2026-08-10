@@ -1,41 +1,26 @@
 {
 	"name": "@ersintarhan/pi-toolkit",
 	"version": "0.8.1",
-	"description": "pi extension that registers Kimi, MiniMax, Xiaomi MiMo, and CrofAI providers with cache fix, Anthropic OAuth adapter, and native web search with provider-override support. Search backends include ZAI MCP, Google, OpenAI, xAI, Anthropic, Claude Code, and Codex (ChatGPT) with DuckDuckGo fallback.",
+	"description": "Pi extension toolkit for Claude OAuth compatibility, native web search, and context management.",
 	"keywords": [
 		"pi-package",
 		"pi-extension",
-		"pi-provider",
 		"pi",
 		"pi-coding-agent",
-		"kimi",
-		"kimi-for-coding",
-		"kimi-k2",
-		"moonshot",
-		"minimax",
-		"minimax-m2",
-		"minimax-m3",
-		"xiaomi",
-		"mimo",
-		"mimo-v2.5",
-		"crofai",
-		"openai",
-		"prompt-caching",
-		"cache",
+		"claude-oauth",
+		"anthropic",
 		"web-search",
 		"web-fetch",
-		"duckduckgo",
 		"search",
-		"anthropic",
-		"codex",
-		"chatgpt"
+		"context-management"
 	],
 	"author": "Ersin Tarhan <ersintarhan@gmail.com>",
 	"license": "MIT",
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
-		"lint": "oxlint src/ index.ts"
+		"lint": "oxlint src/ index.ts",
+		"check": "bun run typecheck && bun run lint && bun test"
 	},
 	"repository": {
 		"type": "git",
@@ -57,9 +42,6 @@
 			"./skills"
 		]
 	},
-	"dependencies": {
-		"@anthropic-ai/sdk": "^0.115.0"
-	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "^0.84.0",
 		"@earendil-works/pi-coding-agent": "^0.84.0",
@@ -68,7 +50,7 @@
 	},
 	"devDependencies": {
 		"@types/bun": "^1.3.14",
-		"oxlint": "^1.77.0",
+		"oxlint": "^1.78.0",
 		"typescript": "^7.0.2"
 	}
 }

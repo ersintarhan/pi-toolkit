@@ -1,5 +1,99 @@
 # Changelog
 
+## Unreleased
+
+The toolkit stops being a provider package. Pi 0.84 ships native MiniMax and
+Xiaomi catalogs, so everything provider-shaped is gone and what remains is the
+four things this package is actually for: the Claude OAuth adapter, native web
+search, context management, and the `/usage` + `/context` commands.
+
+### Removed
+
+- **BREAKING — all bundled provider registrations.** `minimax` and `xiaomi-mimo`
+  are no longer registered. Pi 0.84's native catalogs supersede both, and
+  overriding `minimax` was actively hiding current models such as
+  `MiniMax-M2.7-highspeed`.
+
+  Migrate as follows:
+
+  | Was | Use instead | Credential |
+  | --- | --- | --- |
+  | `minimax/*` | `minimax/*` (Pi native) | `MINIMAX_API_KEY` |
+  | `xiaomi-mimo/mimo-v2.5` | `xiaomi/*` | `XIAOMI_API_KEY` |
+  | `xiaomi-mimo/*` (regional) | `xiaomi-token-plan-{cn,ams,sgp}/*` | `XIAOMI_TOKEN_PLAN_{CN,AMS,SGP}_API_KEY` |
+
+  `XIAOMI_TOKEN_PLAN_API_KEY` and `XIAOMI_MIMO_BASE_URL` are no longer read.
+  For Kimi, install a dedicated package such as
+  [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code).
+
+- **The 875-line custom Anthropic stream fork** (`src/cached-anthropic-stream.ts`)
+  and the direct `@anthropic-ai/sdk` dependency. All requests now go through
+  Pi's maintained provider streams. **The package ships zero runtime
+  dependencies.** The Claude OAuth adapter is unaffected — its protocol
+  behavior is unchanged.
+
+### Added
+
+- Test coverage for the previously untested surfaces: native search routing and
+  key resolution, the Claude OAuth adapter (billing header, identity cleanup,
+  idempotency, non-OAuth no-op), anchor-cache TTL selection, `recall` scanning,
+  `/context` accounting, and `/usage` rendering.
+- Length bounds on `context` tool string parameters, so a runaway `summary` or
+  `carryover` cannot balloon the request.
+- `bun run check` (typecheck + lint + test) as the single entry point used by
+  both CI and the publish workflow.
+- A tracked `bun.lock`, with Bun pinned to 1.3.14 and `--frozen-lockfile`
+  installs in CI and at publish time.
+
+### Changed
+
+- Toolkit logs honor Pi's public `PI_CODING_AGENT_DIR` instead of the
+  undocumented `PI_HOME`.
+- `assertPublicUrl` takes an explicit `allowPrivateHosts` argument rather than
+  reading the environment internally, so the SSRF guard is testable without
+  mutating process state. `PI_SEARCH_ALLOW_PRIVATE_HOSTS=1` still works as the
+  default.
+- After scheduling a pivot, the tool result and prompt guidance now tell the
+  model to end the turn instead of chaining more tool calls into a branch that
+  is about to be replaced.
+- `oxlint` moved to 1.78.0. The old `^1.77.0` range already admitted it, so CI's
+  frozen install and a plain `bun install` were resolving different linters.
+
+### Fixed
+
+- **`recall` no longer loses sessions written by older Pi releases.** Scoping by
+  cwd used the active session directory, but Pi derives that directory name by
+  encoding the cwd and the encoding has changed between releases — so one cwd
+  can own several directories. Scanning stayed narrowed to the current one,
+  hiding 35% of anchors on a real archive. Scope is now decided by each
+  session's recorded header cwd again.
+- Native search picked the wrong provider and model in several fallback paths,
+  and resolved API keys inconsistently across backends. Responses are now read
+  with an explicit size bound and aborts are honored mid-read.
+- Deferred pivot state lived in module scope, so a hot reload produced parallel
+  copies and could double-patch `ExtensionRunner`. State is now keyed on
+  `globalThis` and the patch is marked idempotently.
+- Anchor-cache TTLs are derived from Pi's payload markers and canonical
+  retention setting instead of a hardcoded 5m with its own env override. This
+  removes the mixed-TTL payloads Anthropic rejects, rather than working around
+  them. Payloads with no marker, or `PI_CACHE_RETENTION=none`, are left alone.
+- `/usage` no longer overflows narrow terminals.
+- `/context` mis-attributed skills and sources: the `<available_skills>` block
+  is now split out of the system prompt total, scoped packages report as
+  `@scope/name` instead of `@scope`, and token estimates use Pi's own
+  `estimateTokens` rather than a local approximation.
+
+### Performance
+
+- `recall` streams session files line by line instead of reading each one whole
+  (peak RSS was ~1.86 GB on a large archive), and rejects sessions from other
+  projects with a bounded read of the header line instead of parsing them.
+  Measured on a 708 MB / 392-file archive: **1325 ms → 61 ms cold, 8 ms warm.**
+- The anchor cache no longer carries a 256-entry cap. A full scan visits more
+  files than that in a fixed order, so the cap evicted exactly the entries the
+  next scan read first and every run missed. Entries removed from disk are
+  pruned after each scan.
+
 ## 0.8.1
 
 ### Fixed

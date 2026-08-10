@@ -16,7 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { patchBindCommandContext, runPending, clearPending, isArmed, hasPending, getActivePivot } from "./command-actions.js";
+import { patchBindCommandContext, runPending, clearCommandContext, isArmed, hasPending, getActivePivot } from "./command-actions.js";
 import { isAnchorEntry, isAnchorToolResult, anchorNameOf } from "./context/anchors.js";
 import { registerContextRouter } from "./context/router.js";
 import registerAnchorCache from "./anchor-cache/index.js";
@@ -34,47 +34,22 @@ export default function (pi: ExtensionAPI) {
 	// No-ops on non-Anthropic providers; idempotent w.r.t. pi-better-messages-cache.
 	registerAnchorCache(pi);
 
-	// ── Context event: truncate old tool results + footer status ──
+	// ── Context event: truncate old tool results + human-only footer status ──
 	// Receives AgentMessage[]. Anchors are toolResults with toolName=="context" and details.anchor.
-	// NOTE: This handler only truncates old tool results and updates the footer
-	// status. It must NOT inject any message into the transcript — model-facing
-	// status notes were removed because they distracted the agent.
 	let pendingRunTimer: ReturnType<typeof setTimeout> | undefined;
 
-	/**
-	 * Build the context/anchor status parts shared by the footer (human) and the
-	 * model-facing payload note. Pure so it can run from any event with a ctx.
-	 */
 	function buildStatusParts(ctx: any): {
-		parts: string[];
 		latestAnchorName?: string;
 		latestAnchorDistance: number;
 	} {
-		const parts: string[] = [];
-		let latestAnchorName: string | undefined;
-		let latestAnchorDistance = 0;
-
-		const usage = ctx.getContextUsage?.();
-		if (usage && typeof usage.percent === "number") {
-			const pct = Math.min(100, Math.round(usage.percent));
-			parts.push(`context=${pct}%`);
-		}
-
-		// Only consider anchors on the current branch so status reflects where the
-		// agent actually is, not orphaned anchors from abandoned branches.
 		const branchEntries = ctx.sessionManager?.getBranch?.() ?? [];
-		const anchors = branchEntries.filter(isAnchorEntry);
-		if (anchors.length > 0) {
-			const latestAnchor = anchors[anchors.length - 1];
-			latestAnchorName = anchorNameOf(latestAnchor);
-			if (latestAnchorName) {
-				const latestIdx = branchEntries.indexOf(latestAnchor);
-				latestAnchorDistance = latestIdx >= 0 ? branchEntries.length - 1 - latestIdx : 0;
-				parts.push(`anchor=${latestAnchorName} (-${latestAnchorDistance})`);
-			}
-		}
-
-		return { parts, latestAnchorName, latestAnchorDistance };
+		const latestAnchor = branchEntries.filter(isAnchorEntry).at(-1);
+		const latestAnchorName = latestAnchor ? anchorNameOf(latestAnchor) : undefined;
+		const latestIdx = latestAnchor ? branchEntries.indexOf(latestAnchor) : -1;
+		return {
+			latestAnchorName,
+			latestAnchorDistance: latestIdx >= 0 ? branchEntries.length - 1 - latestIdx : 0,
+		};
 	}
 
 	pi.on("context", async (event, ctx) => {
@@ -112,9 +87,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		// Human-facing footer status. Uses pi's status bar (alongside git branch /
-		// other extensions), never the transcript or input editor. The model-facing
-		// status is injected separately in `before_provider_request`.
+		// Human-facing footer status; never injected into the transcript or editor.
 		const currentModel = ctx.model;
 		if (currentModel && ctx.hasUI) {
 			const { latestAnchorName, latestAnchorDistance } = buildStatusParts(ctx);
@@ -196,6 +169,6 @@ export default function (pi: ExtensionAPI) {
 			clearTimeout(pendingRunTimer);
 			pendingRunTimer = undefined;
 		}
-		clearPending();
+		clearCommandContext();
 	});
 }

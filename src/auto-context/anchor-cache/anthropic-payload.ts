@@ -206,32 +206,59 @@ export function dropToolsMarker(payload: AnthropicPayload, idx: number): void {
 	clearOwner(t);
 }
 
-/**
- * Ground-truth marker count via JSON traversal. Counts every `cache_control`
- * field reachable from the payload root, regardless of nesting depth or block
- * shape. This is the number Anthropic's server-side validator sees.
- *
- * We use this instead of trusting listMarkers() for the 4-limit check, because
- * listMarkers() only inspects known block shapes (top-level system/tools blocks,
- * direct message content blocks) and can undercount when an upstream extension
- * places markers in unexpected positions.
- */
-export function countMarkersRaw(payload: AnthropicPayload): number {
-	let count = 0;
-	const visit = (node: any): void => {
-		if (!node || typeof node !== "object") return;
-		if (Array.isArray(node)) { for (const x of node) visit(x); return; }
-		for (const [k, v] of Object.entries(node)) {
-			if (k === "cache_control" && v && typeof v === "object") count++;
-			else if (k !== "cache_control") visit(v);
+type CacheMarkerBlock = { cache_control?: CacheControl; content?: unknown };
+
+function forEachCacheMarker(payload: AnthropicPayload, visit: (block: CacheMarkerBlock) => void): void {
+	const visitBlock = (block: unknown, nested: boolean): void => {
+		if (!block || typeof block !== "object") return;
+		const candidate = block as CacheMarkerBlock;
+		if (candidate.cache_control && typeof candidate.cache_control === "object") visit(candidate);
+		if (nested && Array.isArray(candidate.content)) {
+			for (const child of candidate.content) visitBlock(child, true);
 		}
 	};
-	visit(payload);
+	for (const block of payload.system ?? []) visitBlock(block, false);
+	for (const block of payload.tools ?? []) visitBlock(block, false);
+	for (const message of payload.messages ?? []) {
+		if (Array.isArray(message.content)) {
+			for (const block of message.content) visitBlock(block, true);
+		}
+	}
+}
+
+/** Select the native payload TTL, with canonical and legacy env overrides. */
+export function resolveAnchorCacheTTL(
+	payload: AnthropicPayload,
+	env: Record<string, string | undefined> = process.env,
+): "5m" | "1h" | null {
+	let markerCount = 0;
+	let hasLongMarker = false;
+	forEachCacheMarker(payload, (block) => {
+		markerCount++;
+		if (block.cache_control?.ttl === "1h") hasLongMarker = true;
+	});
+	if (markerCount === 0 || env.PI_CACHE_RETENTION === "none") return null;
+	if (env.PI_CACHE_RETENTION === "long") return "1h";
+	if (env.PI_CACHE_RETENTION === "short") return "5m";
+	if (env.PI_ANCHOR_CACHE_TTL === "1h" || env.PI_ANCHOR_CACHE_TTL === "5m") return env.PI_ANCHOR_CACHE_TTL;
+	return hasLongMarker ? "1h" : "5m";
+}
+
+export function normalizeCacheMarkerTTLs(payload: AnthropicPayload, ttl: "5m" | "1h"): void {
+	forEachCacheMarker(payload, (block) => {
+		block.cache_control!.ttl = ttl;
+	});
+}
+
+/** Count markers only in Anthropic-supported cache breakpoint locations. */
+export function countMarkersRaw(payload: AnthropicPayload): number {
+	let count = 0;
+	forEachCacheMarker(payload, () => count++);
 	return count;
 }
 
 /**
- * Enforce the 4-marker hard limit using GROUND-TRUTH JSON count, not listMarkers.
+ * Enforce the 4-marker hard limit using all structurally valid marker locations.
  *
  * Phase 1 (preferred): use listMarkers + structured eviction tiers:
  *   1. message-level markers NOT owned by us (rolling foreign markers)
@@ -239,9 +266,9 @@ export function countMarkersRaw(payload: AnthropicPayload): number {
  *   3. system markers NOT owned by us
  *   4. our own markers (last_anchor) — protected as last resort
  *
- * Phase 2 (fallback): if raw JSON count still > max after Phase 1 exhausted,
- * we have a marker in a shape listMarkers doesn't recognize. Walk the payload
- * and brute-force delete the first non-owned cache_control we find, scanning
+ * Phase 2 (fallback): if the structural count is still > max after Phase 1,
+ * a nested content marker is not represented by listMarkers(). Delete the
+ * first non-owned marker from structurally valid content locations, scanning
  * sections in order: messages → tools → system (matches Anthropic processing
  * order, so we drop the latest/rolling markers first while preserving the
  * cacheable static prefix).
@@ -265,9 +292,7 @@ export function enforceMarkerLimit(payload: AnthropicPayload, max = 4): number {
 		markers = listMarkers(payload);
 	}
 
-	// Phase 2: brute-force fallback against ground-truth JSON count. Catches
-	// markers in shapes listMarkers doesn't recognize (e.g. upstream extensions
-	// stamping markers on nested blocks).
+	// Phase 2 handles valid nested content markers that listMarkers omits.
 	while (countMarkersRaw(payload) > max) {
 		const removed = bruteForceDropForeignMarker(payload);
 		if (!removed) break; // only our own markers remain, can't drop more without losing anchor cache

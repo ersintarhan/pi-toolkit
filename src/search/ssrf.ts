@@ -69,12 +69,15 @@ export function isPrivateAddress(ip: string): boolean {
  * Validate a URL for outbound fetching. Returns the parsed URL on success and
  * throws a descriptive Error otherwise. Honors PI_SEARCH_ALLOW_PRIVATE_HOSTS=1.
  */
-export async function assertPublicUrl(url: string): Promise<URL> {
+export async function assertPublicUrl(
+	url: string,
+	allowPrivateHosts = process.env.PI_SEARCH_ALLOW_PRIVATE_HOSTS === "1",
+): Promise<URL> {
 	const parsed = new URL(url);
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
 		throw new Error("Only http/https URLs are allowed");
 	}
-	if (process.env.PI_SEARCH_ALLOW_PRIVATE_HOSTS === "1") return parsed;
+	if (allowPrivateHosts) return parsed;
 
 	let host = parsed.hostname;
 	if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1); // [::1] -> ::1

@@ -1,9 +1,11 @@
-import { test, expect, describe, beforeEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
 import {
 	patchBindCommandContext,
 	scheduleAction,
 	clearPending,
+	clearCommandContext,
+	isArmed,
 	runPending,
 	type RuntimeContext,
 	type CommandOps,
@@ -58,10 +60,29 @@ function schedulePivot(overrides: {
 
 // ── Tests ────────────────────────────────────────────────────
 
-describe("runPending — pivot logic", () => {
-	beforeEach(() => {
-		clearPending();
+beforeEach(clearCommandContext);
+afterEach(clearCommandContext);
+
+describe("bindCommandContext patch", () => {
+	test("is idempotent and shares command state across cache-busted modules", async () => {
+		expect(patchBindCommandContext()).toBe(true);
+		const patched = ExtensionRunner.prototype.bindCommandContext;
+		const hot = await import(`../src/auto-context/command-actions.ts?hot=${Date.now()}`);
+
+		expect(hot.patchBindCommandContext()).toBe(true);
+		expect(ExtensionRunner.prototype.bindCommandContext).toBe(patched);
+
+		arm(async () => ({ cancelled: false }));
+		expect(isArmed()).toBe(true);
+		expect(hot.isArmed()).toBe(true);
+
+		clearCommandContext();
+		expect(isArmed()).toBe(false);
+		expect(hot.isArmed()).toBe(false);
 	});
+});
+
+describe("runPending — pivot logic", () => {
 
 	test("clears editor when post-pivot text matches expectedInjection", async () => {
 		let editorText = ""; // initially empty

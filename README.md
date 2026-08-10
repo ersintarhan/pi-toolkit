@@ -3,13 +3,11 @@
 All-in-one pi extension toolkit.
 
 Includes:
-- **Providers**: `minimax`, `xiaomi-mimo`
-- **Cache optimization** for Anthropic-compatible providers
 - **Claude OAuth adapter** for Anthropic OAuth sessions
 - **Native web search** with multiple backends + provider override
 - **Context management** (`anchor`, `view`, `pivot`, `recall`)
 
-> **Note:** The `kimi-coding` and `crofai` providers have been moved out of this package. For Kimi, install the dedicated provider such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code). CrofAI can be installed from its own package when needed.
+> **Note:** This package no longer registers any provider. Pi 0.84 ships native MiniMax and Xiaomi catalogs; use those. For Kimi, install a dedicated provider such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code). CrofAI can be installed from its own package when needed.
 
 ## Install
 
@@ -20,32 +18,22 @@ pi install npm:@ersintarhan/pi-toolkit
 Local development:
 
 ```bash
-pi -e /Users/ersin/Projects/pi-extensions/pi-toolkit
+pi install .
 ```
 
 ## What this package does
 
-### 1. Provider registration
+### 1. Provider migration
 
-Registers these providers:
+This package registers no providers. Pi 0.84 supplies the current native MiniMax and Xiaomi catalogs and streams, so use those directly — models such as `MiniMax-M2.7-highspeed` stay visible without an override.
 
-| Provider | API | Notes |
-|---|---|---|
-| `minimax` | Anthropic-compatible | Cache-fixed stream path |
-| `xiaomi-mimo` | Anthropic-compatible | Cache-fixed stream path, MiMo quirks handled |
+Native Xiaomi providers: `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, or `xiaomi-token-plan-sgp`.
 
 For Kimi, use an external Kimi provider package (e.g. [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code)).
 
-### 2. Cache optimization
+### 2. Streaming and cache behavior
 
-For Anthropic-compatible providers (`minimax`, `xiaomi-mimo`), this package uses a custom cached stream implementation derived from the better-messages-cache approach.
-
-It does three things:
-- marks the last assistant `tool_use` block
-- marks the last user block
-- repairs partial/invalid streaming JSON during tool call parsing
-
-This keeps cache loss lower across long agentic turns.
+All providers now use Pi 0.84's maintained streams. The former custom Anthropic SDK stream and its cache overrides have been removed. Anchor caching follows native payload markers and `PI_CACHE_RETENTION`; it does not add caching when Pi supplies no marker or retention is `none`.
 
 ### 3. Claude OAuth adapter
 
@@ -97,37 +85,28 @@ Adds the `context` tool with:
 - `pivot`
 
 Also includes:
-- status line (`context=`, `tool=`, `anchor=`)
+- a human-only TUI footer (`ctx … · anchor:…`) that is never sent to the model
 - tool-result truncation before the last anchor
 - anchor-aware cache support in the integrated context flow
 
 ## Provider usage
 
-### MiniMax
+### MiniMax (Pi native)
 
 ```bash
-/model minimax/MiniMax-M3
 /model minimax/MiniMax-M2.7
+/model minimax/MiniMax-M2.7-highspeed
 ```
 
-Requires:
-- `MINIMAX_API_KEY`
+Requires `MINIMAX_API_KEY`.
 
-### Xiaomi MiMo
+### Xiaomi MiMo (Pi native)
 
-```bash
-/model xiaomi-mimo/mimo-v2.5
-/model xiaomi-mimo/mimo-v2.5-pro
-```
+Use `xiaomi` with `XIAOMI_API_KEY`, or a regional token-plan provider:
 
-Requires:
-- `XIAOMI_TOKEN_PLAN_API_KEY`
-
-Optional region override:
-
-```bash
-export XIAOMI_MIMO_BASE_URL=https://token-plan-ams.xiaomimimo.com/anthropic
-```
+- `xiaomi-token-plan-cn` / `XIAOMI_TOKEN_PLAN_CN_API_KEY`
+- `xiaomi-token-plan-ams` / `XIAOMI_TOKEN_PLAN_AMS_API_KEY`
+- `xiaomi-token-plan-sgp` / `XIAOMI_TOKEN_PLAN_SGP_API_KEY`
 
 ### Kimi
 
@@ -156,7 +135,7 @@ Supported:
 | Provider | Endpoint |
 |---|---|
 | `minimax` | `https://api.minimax.io/v1/token_plan/remains` |
-| `xiaomi-mimo` | `https://platform.xiaomimimo.com/api/v1/tokenPlan/usage` |
+| `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, `xiaomi-token-plan-sgp` | `https://platform.xiaomimimo.com/api/v1/tokenPlan/usage` |
 
 Examples:
 
@@ -187,7 +166,7 @@ Example:
 Use MiniMax for coding, but ZAI for search:
 
 ```bash
-/model minimax/MiniMax-M3
+/model minimax/MiniMax-M2.7-highspeed
 /search provider zai
 ```
 
@@ -225,9 +204,11 @@ Common env vars:
 # MiniMax
 export MINIMAX_API_KEY=...
 
-# Xiaomi MiMo
-export XIAOMI_TOKEN_PLAN_API_KEY=...
-export XIAOMI_MIMO_BASE_URL=...
+# Xiaomi MiMo (Pi native)
+export XIAOMI_API_KEY=...
+export XIAOMI_TOKEN_PLAN_CN_API_KEY=...
+export XIAOMI_TOKEN_PLAN_AMS_API_KEY=...
+export XIAOMI_TOKEN_PLAN_SGP_API_KEY=...
 
 # Search backends
 export ZAI_API_KEY=...
@@ -235,10 +216,16 @@ export GEMINI_API_KEY=...
 export OPENAI_API_KEY=...
 export XAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
+
+# Pi prompt-cache retention (anchor cache follows native payload markers)
+export PI_CACHE_RETENTION=long # long, short, or none
+# Legacy explicit override, retained for compatibility
+export PI_ANCHOR_CACHE_TTL=1h # 1h or 5m
 ```
 
 ## Compatibility notes
 
+- The `minimax` and `xiaomi-mimo` registrations were removed in v0.9.0; this package no longer registers providers. Migrate to Pi's native `minimax`, `xiaomi`, or a regional `xiaomi-token-plan-*`. `XIAOMI_TOKEN_PLAN_API_KEY` and `XIAOMI_MIMO_BASE_URL` are no longer read.
 - Do **not** install older overlapping Kimi provider forks at the same time as a dedicated Kimi provider package.
 - Local `pi -e ...` development may behave differently from installed npm packages for skill loading.
 - Codex search requires `codex login` first.
@@ -247,14 +234,7 @@ export ANTHROPIC_API_KEY=...
 
 ## Changelog
 
-- **0.5.9** — Enforce Anthropic cache-control marker budget; lower default anchor-cache budget to 3.
-- **0.5.8** — Stop copying `cache_control` onto synthetic Claude OAuth prompt block; strip foreign thinking signatures on provider switch.
-- **0.5.7** — Guard Kimi stream bootstrap; restrict native web fetch to `http`/`https`.
-- **0.5.6** — Show `toolShare=` only when tool-output share exceeds 50%.
-- **0.5.5** — Add `/context` command for context-window usage reporting.
-- **0.5.4** — Initial public release of `@ersintarhan/pi-toolkit`.
-
-Full details: [CHANGELOG.md](./CHANGELOG.md).
+See [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 

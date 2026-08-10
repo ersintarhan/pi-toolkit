@@ -48,19 +48,41 @@ export interface CommandOps {
 
 // ── State ───────────────────────────────────────────────────
 
-let _ops: CommandOps | null = null;
-let _pending: PendingAction | null = null;
-let _activePivot: PendingPivot | null = null;
+interface CommandActionState {
+	ops: CommandOps | null;
+	pending: PendingAction | null;
+	activePivot: PendingPivot | null;
+}
+
+const STATE_KEY = Symbol.for("pi-toolkit.auto-context.command-actions.state.v1");
+const PATCH_KEY = Symbol.for("pi-toolkit.auto-context.bind-command-context.patch.v1");
+
+function getState(): CommandActionState {
+	const globals = globalThis as Record<symbol, unknown>;
+	const existing = globals[STATE_KEY] as CommandActionState | undefined;
+	if (existing) return existing;
+	const state: CommandActionState = { ops: null, pending: null, activePivot: null };
+	globals[STATE_KEY] = state;
+	return state;
+}
 
 // ── Accessors ───────────────────────────────────────────────
 
-export function isArmed(): boolean { return _ops?.navigateTree != null; }
-export function hasPending(): boolean { return _pending !== null; }
-export function getActivePivot(): PendingPivot | null { return _activePivot; }
+export function isArmed(): boolean { return getState().ops?.navigateTree != null; }
+export function hasPending(): boolean { return getState().pending !== null; }
+export function getActivePivot(): PendingPivot | null { return getState().activePivot; }
 
 export function clearPending(): void {
-	_pending = null;
-	_activePivot = null;
+	const state = getState();
+	state.pending = null;
+	state.activePivot = null;
+}
+
+export function clearCommandContext(): void {
+	const state = getState();
+	state.ops = null;
+	state.pending = null;
+	state.activePivot = null;
 }
 
 /**
@@ -81,19 +103,20 @@ export interface ScheduleParams {
 }
 
 export function scheduleAction(params: ScheduleParams): { content: Array<{ type: "text"; text: string }>; details: Record<string, any> } {
-	if (!isArmed()) {
+	const state = getState();
+	if (state.ops?.navigateTree == null) {
 		return {
 			content: [{ type: "text", text: `Command context not captured. ${params.fallbackHint}` }],
 			details: {},
 		};
 	}
-	if (hasPending()) {
+	if (state.pending) {
 		return {
-			content: [{ type: "text", text: `Another pending action (${_pending?.kind}) is already scheduled. Wait for the current turn to finish.` }],
+			content: [{ type: "text", text: `Another pending action (${state.pending.kind}) is already scheduled. Wait for the current turn to finish.` }],
 			details: {},
 		};
 	}
-	_pending = params.action;
+	state.pending = params.action;
 	return {
 		content: [{ type: "text", text: params.successText }],
 		details: params.details ?? {},
@@ -102,26 +125,25 @@ export function scheduleAction(params: ScheduleParams): { content: Array<{ type:
 
 // ── Patch ───────────────────────────────────────────────────
 
-let _patched = false;
-
 export function patchBindCommandContext(): boolean {
-	if (_patched) return true;
+	const prototype = ExtensionRunner.prototype;
+	const markers = prototype as unknown as Record<symbol, unknown>;
+	if (markers[PATCH_KEY]) return true;
 	try {
-		const orig = ExtensionRunner.prototype.bindCommandContext;
+		const orig = prototype.bindCommandContext;
 		if (typeof orig !== "function") return false;
 
-		ExtensionRunner.prototype.bindCommandContext = function (actions: any) {
+		prototype.bindCommandContext = function (...args: Parameters<typeof orig>) {
+			const actions = args[0];
 			// Only arm when navigateTree is actually a function, so isArmed() never
 			// reports armed for a pi version that lacks this private API.
-			_ops = actions && typeof actions.navigateTree === "function"
-				? {
-					navigateTree: actions.navigateTree,
-				}
+			getState().ops = actions && typeof actions.navigateTree === "function"
+				? { navigateTree: actions.navigateTree }
 				: null;
-			return orig.call(this, actions);
+			return Reflect.apply(orig, this, args);
 		};
 
-		_patched = true;
+		markers[PATCH_KEY] = true;
 		return true;
 	} catch {
 		return false;
@@ -134,12 +156,14 @@ export async function runPending(
 	notify?: (msg: string, level: "info" | "warning" | "error") => void,
 	runtime?: RuntimeContext,
 ): Promise<void> {
-	if (!_ops) return;
+	const state = getState();
+	const ops = state.ops;
+	if (!ops) return;
 	// Consume before awaiting so a long-running action does not block further
 	// scheduling. During the await below, `hasPending()` returns false and the
 	// session is typically being replaced anyway.
-	const action = _pending;
-	_pending = null;
+	const action = state.pending;
+	state.pending = null;
 	if (!action) return;
 
 	const reportError = (message: string, error?: unknown) => {
@@ -165,8 +189,8 @@ export async function runPending(
 			const prevEditor = runtime.getEditorText?.();
 			try {
 				// Let navigateTree build the new branch summary so agent state stays in sync.
-				_activePivot = action;
-				const r = await _ops.navigateTree(action.targetId, { summarize: true });
+				state.activePivot = action;
+				const r = await ops.navigateTree(action.targetId, { summarize: true });
 				if (r.cancelled) {
 					notify?.("Pivot cancelled", "warning");
 				} else {
@@ -183,7 +207,7 @@ export async function runPending(
 					notify?.(`Pivoted to ${action.label ?? action.targetId.slice(0, 8)}`, "info");
 				}
 			} catch (e) { reportError("Pivot failed", e); }
-			finally { _activePivot = null; }
+			finally { state.activePivot = null; }
 			return;
 		}
 
