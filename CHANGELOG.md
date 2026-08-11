@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 ### Changed
 
@@ -23,6 +23,19 @@
   The point is attention rather than cost: a window half-filled with the model's
   own discarded reasoning reaches the compaction threshold twice as fast, and
   compaction is the lossy lever.
+
+  **How much this matters depends on your model.** Claude Opus 4.5 changed the
+  default so that thinking blocks from previous assistant turns are *preserved*
+  in model context; earlier models have them stripped server-side. On a model
+  that preserves them this removes reasoning the model was genuinely reading —
+  measured at ~195K tokens in one long session. On a model that strips them it
+  only saves wire traffic, and is harmless either way.
+
+  **What this costs:** anchors stop being an index into intact history and
+  become the record itself. Anthropic made preservation the default for a
+  reason — seeing its own prior reasoning helps a model stay consistent across a
+  long task — and that is what is being traded away. A summary that captures
+  outcomes rather than topics is now load-bearing, not just good style.
 
 ## 0.9.1
 

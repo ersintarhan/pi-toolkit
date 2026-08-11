@@ -1,6 +1,6 @@
 {
 	"name": "@ersintarhan/pi-toolkit",
-	"version": "0.9.1",
+	"version": "0.10.0",
 	"description": "Pi extension toolkit for Claude OAuth compatibility, native web search, and context management.",
 	"keywords": [
 		"pi-package",
