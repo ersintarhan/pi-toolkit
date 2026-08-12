@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`recall` now finds sessions synced from another machine.** Scope matching
+  compared the recorded cwd literally, so a session written on macOS
+  (`/Users/me/proj`) was invisible from the same project on Linux
+  (`/home/me/proj`) — the default `cwd` scope returned nothing, and only
+  `scope="all"` reached it. Comparison is now home-relative.
+
+  Only the current username's home is reconciled, so two accounts on one machine
+  stay separate, and paths outside home are still matched literally.
+
+  This is the session-content half of cross-machine sync; tools like
+  [`pi-sync`](https://github.com/ersintarhan/pi-sync) already normalize the
+  session *directory* name, but the `cwd` recorded inside the session file
+  necessarily keeps the origin machine's path.
+
 ## 0.10.0
 
 ### Changed

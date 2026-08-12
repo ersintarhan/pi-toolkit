@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
 import { clearCommandContext, patchBindCommandContext } from "../src/auto-context/command-actions";
 import { registerContextRouter } from "../src/auto-context/context/router";
@@ -137,6 +137,57 @@ describe("scanAnchors", () => {
 		controller.abort();
 		await expect(scanAnchors("anything", "cwd", "/work", 10, 0, controller.signal))
 			.rejects.toMatchObject({ name: "AbortError" });
+	});
+});
+
+// A synced session keeps the cwd of the machine that recorded it, so the same
+// project reads as /Users/me/proj on macOS and /home/me/proj on Linux. Derived
+// from the running user so these hold on any host.
+describe("scanAnchors across synced machines", () => {
+	const user = basename(homedir());
+	const macCwd = `/Users/${user}/Projects/demo`;
+	const linuxCwd = `/home/${user}/Projects/demo`;
+
+	function sessionWithCwd(recordedCwd: string, anchorName: string): void {
+		const dir = join(agentSessionsDir(), "--any-encoding--");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "a.jsonl"),
+			entry({ type: "session", id: "synced", cwd: recordedCwd }) +
+			anchor("a", anchorName, "needle", "2026-01-01T00:00:00Z"));
+	}
+
+	test("finds a macOS-recorded session from the Linux path", async () => {
+		sessionWithCwd(macCwd, "needle-from-mac");
+
+		const found = await scanAnchors("needle", "cwd", linuxCwd);
+
+		expect(found.map(r => r.anchorName)).toEqual(["needle-from-mac"]);
+	});
+
+	test("finds a Linux-recorded session from the macOS path", async () => {
+		sessionWithCwd(linuxCwd, "needle-from-linux");
+
+		const found = await scanAnchors("needle", "cwd", macCwd);
+
+		expect(found.map(r => r.anchorName)).toEqual(["needle-from-linux"]);
+	});
+
+	// Only the current user's home is reconciled, so two accounts sharing a
+	// machine never see each other's anchors.
+	test("keeps another user's identically-named project separate", async () => {
+		sessionWithCwd(`/Users/not-${user}/Projects/demo`, "needle-someone-else");
+
+		const found = await scanAnchors("needle", "cwd", linuxCwd);
+
+		expect(found).toEqual([]);
+	});
+
+	test("still separates different projects under the same home", async () => {
+		sessionWithCwd(`/Users/${user}/Projects/other`, "needle-other-project");
+
+		const found = await scanAnchors("needle", "cwd", linuxCwd);
+
+		expect(found).toEqual([]);
 	});
 });
 

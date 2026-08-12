@@ -1,10 +1,46 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 function getSessionsDir(): string {
 	return path.join(getAgentDir(), "sessions");
+}
+
+// Home prefixes that may introduce the same project. The local home covers the
+// normal case; the /Users and /home spellings cover a session that was recorded
+// on another OS and synced here. Restricted to the current username so two
+// accounts on one machine never collapse into each other.
+let cachedHomePrefixes: string[] | undefined;
+function homePrefixes(): string[] {
+	if (cachedHomePrefixes) return cachedHomePrefixes;
+	const home = os.homedir();
+	const user = path.basename(home);
+	cachedHomePrefixes = [...new Set([home, `/Users/${user}`, `/home/${user}`])];
+	return cachedHomePrefixes;
+}
+
+/**
+ * Rewrite a leading home directory to "~" so one project matches itself across
+ * machines.
+ *
+ * A synced session keeps the cwd it was recorded with, and typically only the
+ * home prefix differs: `/Users/me/proj` on macOS against `/home/me/proj` on
+ * Linux. Comparing the home-relative form lets a `cwd`-scoped recall see both.
+ * Paths outside home are returned unchanged, since they cannot be reconciled.
+ *
+ * An unknown cwd stays undefined so it still fails a scope check, as before.
+ */
+function homeRelative(dir: string | undefined): string | undefined {
+	if (dir === undefined) return undefined;
+	for (const home of homePrefixes()) {
+		if (dir === home) return "~";
+		if (dir.startsWith(home + path.sep) || dir.startsWith(home + "/")) {
+			return "~" + dir.slice(home.length);
+		}
+	}
+	return dir;
 }
 
 interface SessionFile {
@@ -126,6 +162,10 @@ export async function scanAnchors(
 	};
 	const files = listSessionFiles();
 
+	// Sessions synced from another machine record that machine's home prefix, so
+	// scope matching compares home-relative paths rather than literal ones.
+	const wantCwd = homeRelative(cwd);
+
 	for (const { file, mtime } of files) {
 		if (signal?.aborted) throw abortError();
 
@@ -134,11 +174,11 @@ export async function scanAnchors(
 		// stays authoritative for headers this cannot read.
 		if (scope === "cwd") {
 			const peeked = peekSessionCwd(file, mtime);
-			if (peeked !== undefined && peeked !== cwd) continue;
+			if (peeked !== undefined && homeRelative(peeked) !== wantCwd) continue;
 		}
 
 		const cached = await loadSessionAnchors(file, mtime, signal);
-		if (scope === "cwd" && cached.cwd !== cwd) continue;
+		if (scope === "cwd" && homeRelative(cached.cwd) !== wantCwd) continue;
 		if (cached.anchors.length === 0) continue;
 
 		for (const a of cached.anchors) {
