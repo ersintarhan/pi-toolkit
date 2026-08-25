@@ -11,6 +11,8 @@
   skill cannot remain active after the context tool and hooks are disabled.
 - Restore auto-context's private `ExtensionRunner` patch on shutdown, so turning
   the feature off and reloading does not leave process-wide behavior behind.
+- Refresh Pi to 0.84.3, Bun tooling to 1.4.0, oxlint to 1.80.0, and CI actions
+  to their current major versions.
 
 ### Upgrade note
 
