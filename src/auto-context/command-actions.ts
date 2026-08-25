@@ -54,6 +54,11 @@ interface CommandActionState {
 	activePivot: PendingPivot | null;
 }
 
+interface BindCommandContextPatch {
+	original: ExtensionRunner["bindCommandContext"];
+	patched: ExtensionRunner["bindCommandContext"];
+}
+
 const STATE_KEY = Symbol.for("pi-toolkit.auto-context.command-actions.state.v1");
 const PATCH_KEY = Symbol.for("pi-toolkit.auto-context.bind-command-context.patch.v1");
 
@@ -130,24 +135,36 @@ export function patchBindCommandContext(): boolean {
 	const markers = prototype as unknown as Record<symbol, unknown>;
 	if (markers[PATCH_KEY]) return true;
 	try {
-		const orig = prototype.bindCommandContext;
-		if (typeof orig !== "function") return false;
+		const original = prototype.bindCommandContext;
+		if (typeof original !== "function") return false;
 
-		prototype.bindCommandContext = function (...args: Parameters<typeof orig>) {
+		const patched: typeof original = function (this: ExtensionRunner, ...args: Parameters<typeof original>) {
 			const actions = args[0];
 			// Only arm when navigateTree is actually a function, so isArmed() never
 			// reports armed for a pi version that lacks this private API.
 			getState().ops = actions && typeof actions.navigateTree === "function"
 				? { navigateTree: actions.navigateTree }
 				: null;
-			return Reflect.apply(orig, this, args);
+			return Reflect.apply(original, this, args);
 		};
 
-		markers[PATCH_KEY] = true;
+		prototype.bindCommandContext = patched;
+		markers[PATCH_KEY] = { original, patched } satisfies BindCommandContextPatch;
 		return true;
 	} catch {
 		return false;
 	}
+}
+
+export function restoreBindCommandContext(): boolean {
+	const prototype = ExtensionRunner.prototype;
+	const markers = prototype as unknown as Record<symbol, unknown>;
+	const patch = markers[PATCH_KEY] as BindCommandContextPatch | undefined;
+	if (!patch?.original || prototype.bindCommandContext !== patch.patched) return false;
+	prototype.bindCommandContext = patch.original;
+	delete markers[PATCH_KEY];
+	clearCommandContext();
+	return true;
 }
 
 // ── Execute pending actions ─────────────────────────────────

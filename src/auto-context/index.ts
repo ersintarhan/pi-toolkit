@@ -16,7 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { patchBindCommandContext, runPending, clearCommandContext, isArmed, hasPending, getActivePivot } from "./command-actions.js";
+import { patchBindCommandContext, restoreBindCommandContext, runPending, clearCommandContext, isArmed, hasPending, getActivePivot } from "./command-actions.js";
 import { isAnchorEntry, anchorNameOf } from "./context/anchors.js";
 import { registerContextRouter } from "./context/router.js";
 import { thinBeforeLastAnchor } from "./context/thin.js";
@@ -142,5 +142,6 @@ export default function (pi: ExtensionAPI) {
 			pendingRunTimer = undefined;
 		}
 		clearCommandContext();
+		restoreBindCommandContext();
 	});
 }

@@ -19,7 +19,7 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
-		"lint": "oxlint src/ index.ts",
+		"lint": "oxlint src/ extensions/ index.ts",
 		"check": "bun run typecheck && bun run lint && bun test"
 	},
 	"repository": {
@@ -29,6 +29,7 @@
 	"type": "module",
 	"files": [
 		"index.ts",
+		"extensions",
 		"src",
 		"skills",
 		"README.md",
@@ -36,10 +37,11 @@
 	],
 	"pi": {
 		"extensions": [
-			"./index.ts"
-		],
-		"skills": [
-			"./skills"
+			"./extensions/provider-usage.ts",
+			"./extensions/context-report.ts",
+			"./extensions/claude-oauth.ts",
+			"./extensions/native-search.ts",
+			"./extensions/context-management.ts"
 		]
 	},
 	"peerDependencies": {

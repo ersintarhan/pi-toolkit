@@ -1,11 +1,11 @@
 /** @ersintarhan/pi-toolkit — extension composition root. */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerUsageCommand } from "./src/usage-command.js";
-import { registerContextCommand } from "./src/context-command.js";
-import claudeOauthAdapter from "./src/claude-oauth-adapter.js";
-import nativeSearchExtension from "./src/native-search.js";
-import autoContextExtension from "./src/auto-context/index.js";
+import registerUsageCommand from "./extensions/provider-usage.js";
+import registerContextCommand from "./extensions/context-report.js";
+import claudeOauthAdapter from "./extensions/claude-oauth.js";
+import nativeSearchExtension from "./extensions/native-search.js";
+import autoContextExtension from "./extensions/context-management.js";
 
 export default function (pi: ExtensionAPI) {
   registerUsageCommand(pi);

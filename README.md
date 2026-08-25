@@ -1,13 +1,14 @@
 # pi-toolkit
 
-Four things Pi doesn't do on its own, in one extension. **No providers, no runtime dependencies.**
+Five independently toggleable Pi features in one package. **No providers, no runtime dependencies.**
 
-| | |
+| Feature | `pi config` resource |
 |---|---|
-| **Claude OAuth adapter** | Makes `/model anthropic/...` work on an Anthropic OAuth session |
-| **Native web search** | `web_search`, `web_fetch`, `/search` — seven backends plus a DuckDuckGo fallback, pinnable per session |
-| **Context management** | `context` tool (`anchor`, `view`, `pivot`, `recall`) plus a bundled skill |
-| **`/usage` and `/context`** | Provider quota and context-window reporting |
+| **Claude OAuth adapter** — makes `/model anthropic/...` work on an Anthropic OAuth session | `claude-oauth.ts` |
+| **Native web search** — `web_search`, `web_fetch`, `/search`; seven backends plus DuckDuckGo fallback | `native-search.ts` |
+| **Context management** — `context` tool (`anchor`, `view`, `pivot`, `recall`) plus its bundled skill | `context-management.ts` |
+| **Context-window report** — `/context` | `context-report.ts` |
+| **Provider quota** — `/usage` | `provider-usage.ts` |
 
 > **Providers:** this package registers none. Pi 0.84 ships native MiniMax and Xiaomi catalogs — use those directly. For Kimi, install a dedicated package such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code); CrofAI likewise has its own. `/usage` still reports quota for all of them. See [Compatibility notes](#compatibility-notes) if you are coming from `xiaomi-mimo`.
 
@@ -22,6 +23,28 @@ Local development:
 ```bash
 pi install .
 ```
+
+## Feature toggles
+
+Pi already ships the settings TUI this package needs:
+
+```bash
+pi config
+```
+
+Find `@ersintarhan/pi-toolkit`, then press Space to enable or disable an individual feature. Press Tab to switch between global and project-local settings, or start directly in project mode with `pi config -l`. Run `/reload` in an active Pi session after changing resources.
+
+All five features remain enabled by default. The `context-management` skill is loaded by `context-management.ts`, so disabling that one resource disables both the tool hooks and its model instructions together.
+
+> Upgrading from the old single `index.ts` resource? If you had disabled it in `pi config`, open the TUI once after upgrading and select the new resources; filters are path-based. The root `index.ts` remains a legacy all-in-one entry for direct loading—do not load it alongside the installed package.
+
+| Another package already handles… | Disable |
+|---|---|
+| `web_search`, `web_fetch`, or web-search routing | `native-search.ts` |
+| anchors, context thinning, tree pivots, or Anthropic anchor caching | `context-management.ts` |
+| Anthropic OAuth request/billing adaptation | `claude-oauth.ts` |
+| `/context` reporting | `context-report.ts` |
+| `/usage` reporting | `provider-usage.ts` |
 
 ## What this package does
 
