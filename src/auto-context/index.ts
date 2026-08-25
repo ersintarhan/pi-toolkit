@@ -22,6 +22,7 @@ import { registerContextRouter } from "./context/router.js";
 import { thinBeforeLastAnchor } from "./context/thin.js";
 import registerAnchorCache from "./anchor-cache/index.js";
 import { createLogger } from "../logger.js";
+import { setOptionalStatus } from "../status-display.js";
 
 const log = createLogger("pi-auto-context");
 
@@ -73,7 +74,7 @@ export default function (pi: ExtensionAPI) {
 					`anchor:${latestAnchorName}${latestAnchorDistance > 0 ? ` -${latestAnchorDistance}` : ""}`,
 				);
 			}
-			ctx.ui.setStatus("auto-context", footerBits.length ? footerBits.join(" · ") : undefined);
+			setOptionalStatus(ctx, "auto-context", footerBits.length ? footerBits.join(" · ") : undefined);
 		}
 
 		if (modified) return { messages };

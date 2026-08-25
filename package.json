@@ -37,6 +37,7 @@
 	],
 	"pi": {
 		"extensions": [
+			"./extensions/status-display.ts",
 			"./extensions/provider-usage.ts",
 			"./extensions/context-report.ts",
 			"./extensions/claude-oauth.ts",

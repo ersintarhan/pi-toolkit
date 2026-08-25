@@ -7,6 +7,7 @@ import { restoreBindCommandContext } from "../src/auto-context/command-actions";
 const root = join(import.meta.dir, "..");
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const extensions = [
+  "./extensions/status-display.ts",
   "./extensions/provider-usage.ts",
   "./extensions/context-report.ts",
   "./extensions/claude-oauth.ts",
@@ -17,7 +18,7 @@ const extensions = [
 afterEach(restoreBindCommandContext);
 
 describe("package resources", () => {
-  test("exposes each feature as a separately toggleable extension", () => {
+  test("exposes each feature and the optional status display separately", () => {
     expect(manifest.pi.extensions).toEqual(extensions);
     for (const extension of extensions) {
       expect(existsSync(join(root, extension))).toBe(true);

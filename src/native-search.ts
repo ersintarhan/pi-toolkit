@@ -44,6 +44,7 @@ import { hasCodexAuth, refreshCodexAuthStatus } from "./search/codex-auth.js";
 import { executeCodexSearch } from "./search/codex-search.js";
 import { assertPublicUrl } from "./search/ssrf.js";
 import { createLogger } from "./logger.js";
+import { setOptionalStatus } from "./status-display.js";
 
 const log = createLogger("native-search");
 
@@ -1601,7 +1602,8 @@ export default function searchExtension(pi: ExtensionAPI) {
     const parts: string[] = [];
     if (config.searchEnabled) parts.push(`search ${backend}`);
     if (config.fetchEnabled) parts.push(`fetch ${fetchBackend}`);
-    ctx.ui.setStatus(
+    setOptionalStatus(
+      ctx,
       "search",
       parts.length ? ctx.ui.theme.fg("accent", parts.join(" · ")) : undefined,
     );

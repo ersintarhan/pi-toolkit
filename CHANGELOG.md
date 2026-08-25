@@ -7,6 +7,8 @@
 - Expose Claude OAuth, native search, context management, `/context`, and `/usage`
   as separate package extension resources. Pi's native `pi config` TUI can now
   enable or disable each feature globally or per project.
+- Add a separate `status-display.ts` resource that hides persistent context,
+  anchor, search, fetch, and Claude OAuth footer text without disabling behavior.
 - Load the bundled context-management skill from its owning extension, so the
   skill cannot remain active after the context tool and hooks are disabled.
 - Restore auto-context's private `ExtensionRunner` patch on shutdown, so turning

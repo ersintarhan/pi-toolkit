@@ -11,6 +11,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { setOptionalStatus } from "./status-display.js";
 
 const DOCS_MARKER =
   "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
@@ -221,7 +222,8 @@ function renderAdapterStatus(ctx: ExtensionContext): void {
 
   const theme = ctx.ui.theme;
   if (adapterStatus.phase === "ready") {
-    ctx.ui.setStatus(
+    setOptionalStatus(
+      ctx,
       READY_STATUS_KEY,
       theme.fg("success", "✓ Claude OAuth ready"),
     );
@@ -229,7 +231,8 @@ function renderAdapterStatus(ctx: ExtensionContext): void {
   }
 
   if (adapterStatus.phase === "active") {
-    ctx.ui.setStatus(
+    setOptionalStatus(
+      ctx,
       READY_STATUS_KEY,
       theme.fg("success", "✓ Claude OAuth active"),
     );
@@ -237,7 +240,8 @@ function renderAdapterStatus(ctx: ExtensionContext): void {
   }
 
   if (adapterStatus.phase === "issue") {
-    ctx.ui.setStatus(
+    setOptionalStatus(
+      ctx,
       ISSUE_STATUS_KEY,
       theme.fg("warning", "⚠ Claude OAuth setup"),
     );
