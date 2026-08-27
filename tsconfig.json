@@ -17,6 +17,6 @@
 		"allowJs": false,
 		"types": ["bun"]
 	},
-	"include": ["index.ts", "src/**/*.ts"],
+	"include": ["index.ts", "extensions/**/*.ts", "src/**/*.ts"],
 	"exclude": ["node_modules"]
 }

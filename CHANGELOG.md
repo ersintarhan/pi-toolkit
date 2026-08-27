@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Expose Claude OAuth, native search, context management, `/context`, and `/usage`
+  as separate package extension resources. Pi's native `pi config` TUI can now
+  enable or disable each feature globally or per project.
+- Add a separate `status-display.ts` resource that hides persistent context,
+  anchor, search, fetch, and Claude OAuth footer text without disabling behavior.
+- Load the bundled context-management skill from its owning extension, so the
+  skill cannot remain active after the context tool and hooks are disabled.
+- Restore auto-context's private `ExtensionRunner` patch on shutdown, so turning
+  the feature off and reloading does not leave process-wide behavior behind.
+- Refresh Pi to 0.84.3, Bun tooling to 1.4.0, oxlint to 1.80.0, and CI actions
+  to their current major versions.
+
+### Upgrade note
+
+- A filter for the former single `index.ts` resource does not match the new
+  resource paths. If it was disabled, rerun `pi config` after upgrading.
+
 ## 0.10.1
 
 ### Fixed

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import claudeOauthAdapter from "../src/claude-oauth-adapter";
+import { setStatusDisplayEnabled } from "../src/status-display";
 
 const DOCS_MARKER =
   "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
@@ -13,11 +14,13 @@ const envNames = [
 let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
+  setStatusDisplayEnabled(true);
   savedEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
   for (const name of envNames) delete process.env[name];
 });
 
 afterEach(() => {
+  setStatusDisplayEnabled(false);
   for (const name of envNames) {
     const value = savedEnv[name];
     if (value === undefined) delete process.env[name];

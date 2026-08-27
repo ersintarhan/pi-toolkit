@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
 import {
 	patchBindCommandContext,
+	restoreBindCommandContext,
 	scheduleAction,
 	clearPending,
 	clearCommandContext,
@@ -60,11 +61,18 @@ function schedulePivot(overrides: {
 
 // ── Tests ────────────────────────────────────────────────────
 
-beforeEach(clearCommandContext);
-afterEach(clearCommandContext);
+beforeEach(() => {
+	restoreBindCommandContext();
+	clearCommandContext();
+});
+afterEach(() => {
+	restoreBindCommandContext();
+	clearCommandContext();
+});
 
 describe("bindCommandContext patch", () => {
-	test("is idempotent and shares command state across cache-busted modules", async () => {
+	test("is idempotent, shared across reloads, and removable", async () => {
+		const original = ExtensionRunner.prototype.bindCommandContext;
 		expect(patchBindCommandContext()).toBe(true);
 		const patched = ExtensionRunner.prototype.bindCommandContext;
 		const hot = await import(`../src/auto-context/command-actions.ts?hot=${Date.now()}`);
@@ -79,6 +87,9 @@ describe("bindCommandContext patch", () => {
 		clearCommandContext();
 		expect(isArmed()).toBe(false);
 		expect(hot.isArmed()).toBe(false);
+
+		expect(hot.restoreBindCommandContext()).toBe(true);
+		expect(ExtensionRunner.prototype.bindCommandContext).toBe(original);
 	});
 });
 

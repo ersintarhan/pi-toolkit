@@ -1,13 +1,15 @@
 # pi-toolkit
 
-Four things Pi doesn't do on its own, in one extension. **No providers, no runtime dependencies.**
+Five independently toggleable Pi features plus an optional status display. **No providers, no runtime dependencies.**
 
-| | |
+| Feature | `pi config` resource |
 |---|---|
-| **Claude OAuth adapter** | Makes `/model anthropic/...` work on an Anthropic OAuth session |
-| **Native web search** | `web_search`, `web_fetch`, `/search` — seven backends plus a DuckDuckGo fallback, pinnable per session |
-| **Context management** | `context` tool (`anchor`, `view`, `pivot`, `recall`) plus a bundled skill |
-| **`/usage` and `/context`** | Provider quota and context-window reporting |
+| **Claude OAuth adapter** — makes `/model anthropic/...` work on an Anthropic OAuth session | `claude-oauth.ts` |
+| **Native web search** — `web_search`, `web_fetch`, `/search`; seven backends plus DuckDuckGo fallback | `native-search.ts` |
+| **Context management** — `context` tool (`anchor`, `view`, `pivot`, `recall`) plus its bundled skill | `context-management.ts` |
+| **Context-window report** — `/context` | `context-report.ts` |
+| **Provider quota** — `/usage` | `provider-usage.ts` |
+| **Status display** — persistent context/anchor, search/fetch, and Claude OAuth footer text | `status-display.ts` |
 
 > **Providers:** this package registers none. Pi 0.84 ships native MiniMax and Xiaomi catalogs — use those directly. For Kimi, install a dedicated package such as [`pi-provider-kimi-code`](https://github.com/Leechael/pi-provider-kimi-code); CrofAI likewise has its own. `/usage` still reports quota for all of them. See [Compatibility notes](#compatibility-notes) if you are coming from `xiaomi-mimo`.
 
@@ -23,6 +25,29 @@ Local development:
 pi install .
 ```
 
+## Feature toggles
+
+Pi already ships the settings TUI this package needs:
+
+```bash
+pi config
+```
+
+Find `@ersintarhan/pi-toolkit`, then press Space to enable or disable an individual feature. Press Tab to switch between global and project-local settings, or start directly in project mode with `pi config -l`. Run `/reload` in an active Pi session after changing resources.
+
+All features and the status display remain enabled by default. Disable `status-display.ts` to hide the footer text without disabling any tools, hooks, commands, dialogs, or notifications. The `context-management` skill is loaded by `context-management.ts`, so disabling that one resource disables both the tool hooks and its model instructions together.
+
+> Upgrading from the old single `index.ts` resource? If you had disabled it in `pi config`, open the TUI once after upgrading and select the new resources; filters are path-based. The root `index.ts` remains a legacy all-in-one entry for direct loading—do not load it alongside the installed package.
+
+| Another package already handles… | Disable |
+|---|---|
+| persistent toolkit footer text, or you prefer a clean footer | `status-display.ts` |
+| `web_search`, `web_fetch`, or web-search routing | `native-search.ts` |
+| anchors, context thinning, tree pivots, or Anthropic anchor caching | `context-management.ts` |
+| Anthropic OAuth request/billing adaptation | `claude-oauth.ts` |
+| `/context` reporting | `context-report.ts` |
+| `/usage` reporting | `provider-usage.ts` |
+
 ## What this package does
 
 ### Claude OAuth adapter
@@ -30,7 +55,7 @@ pi install .
 When using `/model anthropic/...` with **Anthropic OAuth**:
 - strips the Claude Code identity block
 - injects the billing header Claude Code expects
-- shows footer status like `✓ Claude OAuth ready/active`
+- shows footer status like `✓ Claude OAuth ready/active` when `status-display.ts` is enabled
 - docs re-injection is disabled by default (see `PI_CLAUDE_OAUTH_REINJECT_SCOPE`)
 
 It only activates for the `anthropic` provider when OAuth is actually in use, and is otherwise a no-op.
@@ -83,7 +108,7 @@ Adds the `context` tool with `view`, `recall`, `anchor`, and `pivot`, plus a bun
 - **Tool results before the last anchor are truncated out of the request.** The session file on disk keeps everything, but the running agent cannot pull that text back — there is no expand-back tool. An anchor's summary is the only surviving record of the work before it, which is why the skill insists summaries capture outcomes rather than topics.
 - **`recall`** searches anchors across past sessions, scoped to the current cwd by default.
 - **Anchor-aware prompt caching:** on Anthropic, the rolling cache marker is shifted onto the last anchor's block instead of a new marker being added, so truncation stops invalidating the prefix every turn. It follows Pi's own payload markers and `PI_CACHE_RETENTION`, and adds nothing when Pi supplies no marker or retention is `none`.
-- A human-only TUI footer (`ctx … · anchor:…`) that is never sent to the model.
+- An optional human-only TUI footer (`ctx … · anchor:…`) that is never sent to the model; disable `status-display.ts` to hide it.
 
 ### `/usage`
 

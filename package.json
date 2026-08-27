@@ -19,7 +19,7 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
-		"lint": "oxlint src/ index.ts",
+		"lint": "oxlint src/ extensions/ index.ts",
 		"check": "bun run typecheck && bun run lint && bun test"
 	},
 	"repository": {
@@ -29,6 +29,7 @@
 	"type": "module",
 	"files": [
 		"index.ts",
+		"extensions",
 		"src",
 		"skills",
 		"README.md",
@@ -36,21 +37,23 @@
 	],
 	"pi": {
 		"extensions": [
-			"./index.ts"
-		],
-		"skills": [
-			"./skills"
+			"./extensions/status-display.ts",
+			"./extensions/provider-usage.ts",
+			"./extensions/context-report.ts",
+			"./extensions/claude-oauth.ts",
+			"./extensions/native-search.ts",
+			"./extensions/context-management.ts"
 		]
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": "^0.84.0",
-		"@earendil-works/pi-coding-agent": "^0.84.0",
-		"@earendil-works/pi-tui": "^0.84.0",
+		"@earendil-works/pi-ai": "^0.84.3",
+		"@earendil-works/pi-coding-agent": "^0.84.3",
+		"@earendil-works/pi-tui": "^0.84.3",
 		"@sinclair/typebox": "^0.34.52"
 	},
 	"devDependencies": {
-		"@types/bun": "^1.3.14",
-		"oxlint": "^1.78.0",
+		"@types/bun": "^1.4.0",
+		"oxlint": "^1.80.0",
 		"typescript": "^7.0.2"
 	}
 }
