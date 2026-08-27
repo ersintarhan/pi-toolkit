@@ -54,6 +54,7 @@ import {
 	countMarkersRaw,
 	purgeLegacyOwnerFields,
 	resolveAnchorCacheTTL,
+	clampPostAnchorMarkerTTLs,
 	normalizeCacheMarkerTTLs,
 	type CacheControl,
 } from "./anthropic-payload.js";
@@ -136,7 +137,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Strategy: shift the rolling message-level marker onto the anchor block.
 		// Drop historical message markers before the anchor; leave later rolling
-		// markers in place. All retained markers already share anchorTTL.
+		// markers in place (clamped to 5m below — they rewrite every turn).
 		const beforeMarkers = listMarkers(payload);
 		let droppedPreAnchor = 0;
 		for (const m of beforeMarkers) {
@@ -149,6 +150,10 @@ export default function (pi: ExtensionAPI) {
 
 		// Install our anchor marker (owned by us).
 		setMessageMarker(payload, anchorLoc.msgIdx, anchorLoc.blockIdx, anchorControl, "last_anchor");
+
+		// Rolling post-anchor markers restart every turn; keep them on 5m so the
+		// 1h write premium is paid once per anchor, not every turn.
+		if (anchorTTL === "1h") clampPostAnchorMarkerTTLs(payload, anchorLoc.msgIdx);
 
 		// Safety net: the default budget is Anthropic's four-marker limit.
 		const droppedByLimit = enforceMarkerLimit(payload, markerBudget);

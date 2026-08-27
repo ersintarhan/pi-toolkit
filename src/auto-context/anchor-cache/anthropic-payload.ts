@@ -250,6 +250,20 @@ export function normalizeCacheMarkerTTLs(payload: AnthropicPayload, ttl: "5m" | 
 	});
 }
 
+/**
+ * Clamp post-anchor rolling message markers to short (5m) TTL: they restart
+ * every turn, so keeping them on 1h would pay the doubled write premium per
+ * turn instead of once per anchor. Stable-prefix markers (system/tools) keep
+ * the anchor TTL — they are rewritten rarely.
+ */
+export function clampPostAnchorMarkerTTLs(payload: AnthropicPayload, anchorMsgIdx: number): void {
+	for (const m of listMarkers(payload)) {
+		if (m.section === "messages" && m.idx > anchorMsgIdx && m.control.ttl !== "5m") {
+			m.control.ttl = "5m";
+		}
+	}
+}
+
 /** Count markers only in Anthropic-supported cache breakpoint locations. */
 export function countMarkersRaw(payload: AnthropicPayload): number {
 	let count = 0;

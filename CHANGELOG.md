@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- anchor-cache: post-anchor rolling cache markers are now clamped to `5m` TTL instead of inheriting the anchor's `1h` — they rewrite every turn, so the doubled 1h write premium is now paid once per anchor rather than per request. Stable-prefix (system/tools) markers keep the anchor TTL. Visible in `PI_ANCHOR_CACHE_DEBUG=1` output as split TTLs.
+
 ## 0.11.0
 
 _2026-08-27_

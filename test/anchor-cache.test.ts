@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  clampPostAnchorMarkerTTLs,
   countMarkersRaw,
   normalizeCacheMarkerTTLs,
   resolveAnchorCacheTTL,
@@ -34,6 +35,20 @@ describe("anchor cache TTL", () => {
     normalizeCacheMarkerTTLs(value, "1h");
     expect(JSON.stringify(value).match(/\"ttl\":\"1h\"/g)?.length).toBe(3);
     expect(JSON.stringify(value)).not.toContain('"ttl":"5m"');
+  });
+
+  test("post-anchor rolling markers clamp to 5m while stable prefix keeps anchor TTL", () => {
+    const value = payload(["1h"]); // system marker
+    (value.messages as unknown[])!.push(
+      { role: "user", content: [{ type: "tool_result", content: [], cache_control: { type: "ephemeral", ttl: "1h" } }] },
+      { role: "user", content: [{ type: "text", text: "hi", cache_control: { type: "ephemeral", ttl: "1h" } }] },
+    );
+    clampPostAnchorMarkerTTLs(value, 0); // anchor sits in messages[0]
+    const system = (value.system![0] as { cache_control: { ttl: string } }).cache_control.ttl;
+    const msgs = value.messages as Array<{ content: Array<{ cache_control?: { ttl: string } }> }>;
+    expect(system).toBe("1h");
+    expect(msgs[0].content[0].cache_control!.ttl).toBe("1h"); // anchor block
+    expect(msgs[1].content[0].cache_control!.ttl).toBe("5m"); // rolling marker
   });
 
   test("ignores cache_control inside tool input", () => {
