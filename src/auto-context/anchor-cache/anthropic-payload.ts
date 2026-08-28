@@ -257,9 +257,18 @@ export function normalizeCacheMarkerTTLs(payload: AnthropicPayload, ttl: "5m" | 
  * the anchor TTL — they are rewritten rarely.
  */
 export function clampPostAnchorMarkerTTLs(payload: AnthropicPayload, anchorMsgIdx: number): void {
-	for (const m of listMarkers(payload)) {
-		if (m.section === "messages" && m.idx > anchorMsgIdx && m.control.ttl !== "5m") {
-			m.control.ttl = "5m";
+	// pi-ai reuses ONE cache_control object across tools/system/message markers
+	// (anthropic-messages.js assigns the same `cacheControl` reference). Mutating
+	// it in place would flip system/tools TTLs to 5m too, leaving a 1h anchor
+	// marker after a 5m block — Anthropic hard-rejects that ordering. Replace
+	// with a fresh object so only the rolling message marker changes.
+	if (!payload.messages) return;
+	for (let i = anchorMsgIdx + 1; i < payload.messages.length; i++) {
+		const m = payload.messages[i];
+		if (!Array.isArray(m.content)) continue;
+		for (const block of m.content) {
+			const cc = block?.cache_control;
+			if (cc && cc.ttl !== "5m") block.cache_control = { ...cc, ttl: "5m" };
 		}
 	}
 }

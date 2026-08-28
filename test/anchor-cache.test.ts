@@ -51,6 +51,26 @@ describe("anchor cache TTL", () => {
     expect(msgs[1].content[0].cache_control!.ttl).toBe("5m"); // rolling marker
   });
 
+  test("clamp must not mutate cache_control objects shared with system/tools markers (pi-ai aliases them)", () => {
+    // pi-ai assigns the SAME cache_control object to system, last tool, and the
+    // trailing message marker. In-place mutation flipped system/tools to 5m and
+    // tripped Anthropic's "no 1h after 5m" ordering rule (400).
+    const shared: { type: "ephemeral"; ttl: "1h" } = { type: "ephemeral", ttl: "1h" };
+    const value = payload(["1h"]);
+    (value.system![0] as { cache_control: unknown }).cache_control = shared;
+    (value.messages as unknown[])!.push(
+      { role: "user", content: [{ type: "text", text: "anchor", cache_control: { type: "ephemeral", ttl: "1h" } }] },
+      { role: "user", content: [{ type: "text", text: "trailing", cache_control: shared }] },
+    );
+    clampPostAnchorMarkerTTLs(value, 0); // anchor at messages[0]
+    const system = (value.system![0] as { cache_control: { ttl: string } }).cache_control.ttl;
+    const msgs = value.messages as Array<{ content: Array<{ cache_control?: { ttl: string } }> }>;
+    expect(system).toBe("1h"); // shared object untouched
+    expect(msgs[1].content[0].cache_control!.ttl).toBe("5m");
+    expect(msgs[1].content[0].cache_control).not.toBe(shared); // de-aliased
+    expect(shared.ttl).toBe("1h"); // original object never mutated
+  });
+
   test("ignores cache_control inside tool input", () => {
     const value = {
       system: [{ type: "text", text: "system" }],

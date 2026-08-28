@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.1
+
+_2026-08-27_
+
+- fix(anchor-cache): 400 `invalid_request_error` ("a ttl='1h' cache_control block must not come after a ttl='5m' block") on `PI_ANCHOR_CACHE_TTL=1h`. Root cause: pi-ai reuses one `cache_control` object across tools/system/message markers; the 0.12.0 clamp mutated that shared object in place, flipping system/tools markers to 5m while the anchor stayed 1h. The clamp now replaces the marker with a fresh de-aliased object. Workaround for 0.12.0: unset `PI_ANCHOR_CACHE_TTL`.
+
 ## 0.12.0
 
 _2026-08-27_
