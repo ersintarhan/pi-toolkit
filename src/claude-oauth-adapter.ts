@@ -26,7 +26,7 @@ const END_MARKERS = [
 ] as const;
 const PI_TOPIC_REGEX =
   /\b(pi|@mariozechner\/pi-|pi-mono|coding agent harness|pi sdk|pi extension|pi theme|pi skill|pi tui|pi package|prompt templates?|keybindings?|custom providers?|adding models?)\b/i;
-const DEFAULT_CLAUDE_CODE_VERSION = "2.1.96";
+const DEFAULT_CLAUDE_CODE_VERSION = "2.1.251";
 const BILLING_SALT = "59cf53e54c78";
 const DEFAULT_ENTRYPOINT = "pi";
 

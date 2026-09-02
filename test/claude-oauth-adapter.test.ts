@@ -97,7 +97,7 @@ describe("Claude OAuth adapter regression", () => {
       ),
     ).toHaveLength(1);
     expect(system[0]?.text).toMatch(
-      /^x-anthropic-billing-header: cc_version=2\.1\.96\.[0-9a-f]{3}; cc_entrypoint=pi; cch=[0-9a-f]{5};$/,
+      /^x-anthropic-billing-header: cc_version=2\.1\.251\.[0-9a-f]{3}; cc_entrypoint=pi; cch=[0-9a-f]{5};$/,
     );
 
     handlers.after_provider_response?.(
