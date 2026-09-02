@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.2
+
+_2026-09-02_
+
+- fix(claude-oauth): update the fallback Claude Code billing-header version
+  from `2.1.96` to `2.1.251`. Anthropic now rejects newer models when OAuth
+  requests identify as an older Claude Code client.
+
 ## 0.12.1
 
 _2026-08-27_
