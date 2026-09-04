@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0
+
+_2026-09-04_
+
+- Refresh the Pi peer dependencies to `^0.85.0`.
+- Add `@earendil-works/pi-server` as a temporary peer dependency. Pi 0.85.0's
+  `pi-coding-agent` root entry eagerly loads the experimental server module but
+  does not declare `pi-server`, so extension imports otherwise fail with
+  `ERR_MODULE_NOT_FOUND` before toolkit code runs.
+
 ## 0.12.2
 
 _2026-09-02_
