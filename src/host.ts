@@ -25,3 +25,8 @@ export function isOmpHost(): boolean {
 	}
 	return cached;
 }
+
+/** Test-only: force the host detection result (undefined = auto). */
+export function __setHostOverride(value: boolean | undefined): void {
+	cached = value;
+}

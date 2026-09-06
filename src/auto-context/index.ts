@@ -16,7 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isOmpHost } from "./host.js";
+import { isOmpHost } from "../host.js";
 import { patchBindCommandContext, restoreBindCommandContext, runPending, clearCommandContext, isArmed, hasPending, getActivePivot } from "./command-actions.js";
 import { isAnchorEntry, anchorNameOf } from "./context/anchors.js";
 import { registerContextRouter } from "./context/router.js";
