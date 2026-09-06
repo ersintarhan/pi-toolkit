@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { anchorPayloadOf, isAnchorToolResult } from "./context/anchors.js";
 
 function getSessionsDir(): string {
 	return path.join(getAgentDir(), "sessions");
@@ -257,13 +258,8 @@ async function loadSessionAnchors(file: string, mtime: number, signal?: AbortSig
 				header = entry;
 				continue;
 			}
-			if (
-				entry.type === "message" &&
-				entry.message?.role === "toolResult" &&
-				entry.message?.toolName === "context" &&
-				entry.message?.details?.anchor
-			) {
-				const anchor = entry.message.details.anchor;
+			if (entry.type === "message" && isAnchorToolResult(entry.message)) {
+				const anchor = anchorPayloadOf(entry.message);
 				if (!anchor?.name || !anchor?.summary) continue;
 				anchors.push({
 					anchorId: entry.id,
