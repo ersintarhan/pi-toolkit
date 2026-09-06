@@ -16,6 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isOmpHost } from "./host.js";
 import { patchBindCommandContext, restoreBindCommandContext, runPending, clearCommandContext, isArmed, hasPending, getActivePivot } from "./command-actions.js";
 import { isAnchorEntry, anchorNameOf } from "./context/anchors.js";
 import { registerContextRouter } from "./context/router.js";
@@ -27,14 +28,22 @@ import { setOptionalStatus } from "../status-display.js";
 const log = createLogger("pi-auto-context");
 
 export default function (pi: ExtensionAPI) {
-	// Patch ExtensionRunner to auto-capture command context actions.
-	const patchOk = patchBindCommandContext();
+	const omp = isOmpHost();
+
+	// Patch ExtensionRunner to auto-capture command context actions for
+	// pivot's pending actions. The patch reaches into pi's ExtensionRunner
+	// internals, which differ in omp; attempting it there always fails and
+	// would only produce a warning. omp's built-in /tree fallback already
+	// covers that host, so the patch stays pi-only.
+	const patchOk = !omp && patchBindCommandContext();
 
 	registerContextRouter(pi);
 
 	// Anchor-aware Anthropic prompt-cache breakpoint optimization.
 	// No-ops on non-Anthropic providers; idempotent w.r.t. pi-better-messages-cache.
-	registerAnchorCache(pi);
+	// pi-only: omp ships its own Anthropic OAuth flow and prompt-cache marker
+	// management; shifting markers there would fight the host.
+	if (!omp) registerAnchorCache(pi);
 
 	// ── Context event: truncate old tool results + human-only footer status ──
 	// Receives AgentMessage[]. Anchors are toolResults with toolName=="context" and details.anchor.
@@ -125,7 +134,7 @@ export default function (pi: ExtensionAPI) {
 	// Warn once if patch failed or command context was never bound.
 	let warnedOnce = false;
 	pi.on("session_start", async (_event, ctx) => {
-		if (warnedOnce) return;
+		if (warnedOnce || omp) return;
 		if (!patchOk) {
 			warnedOnce = true;
 			if (ctx.hasUI) ctx.ui.notify("pi-auto-context: failed to patch ExtensionRunner — pivot will fall back to built-in /tree", "warning");

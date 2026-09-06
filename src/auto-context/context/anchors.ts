@@ -4,8 +4,29 @@ export interface AnchorState {
 	summary: string;
 }
 
+export function anchorPayloadOf(m: any): AnchorState | null {
+	if (m?.role !== "toolResult") return null;
+	if (m.toolName === "context" && m.details?.anchor) return m.details.anchor;
+	// omp dispatches extension tools through the write tool's xd:// device
+	// layer, so anchor tool results persist wrapped: toolName "write" with
+	// details.xdev = { tool: "context", args: { action: "anchor" },
+	// inner: { anchor } }. Recognizing both shapes keeps anchor detection,
+	// thinning, and cross-session recall working on either host.
+	if (m.toolName === "write") {
+		const xdev = m.details?.xdev;
+		if (
+			xdev?.tool === "context" &&
+			xdev?.args?.action === "anchor" &&
+			xdev?.inner?.anchor
+		) {
+			return xdev.inner.anchor;
+		}
+	}
+	return null;
+}
+
 export function isAnchorToolResult(m: any): boolean {
-	return m?.role === "toolResult" && m?.toolName === "context" && !!m?.details?.anchor;
+	return anchorPayloadOf(m) !== null;
 }
 
 export function isAnchorEntry(e: any): boolean {
@@ -104,7 +125,8 @@ export function getAnchors(sm: any): Array<{ id: string; data: AnchorState }> {
 	return sm.getEntries()
 		.filter(isAnchorEntry)
 		.map((e: any) => {
-			const raw = e.message.details.anchor;
+			const raw = anchorPayloadOf(e.message);
+			if (!raw) return null;
 			return {
 				id: e.id,
 				data: {
@@ -113,7 +135,8 @@ export function getAnchors(sm: any): Array<{ id: string; data: AnchorState }> {
 					summary: raw.summary,
 				} as AnchorState,
 			};
-		});
+		})
+		.filter((a: { id: string; data: AnchorState } | null): a is { id: string; data: AnchorState } => a !== null);
 }
 
 export function findAnchorByName(sm: any, name: string): AnchorState | null {
@@ -151,10 +174,8 @@ export function anchorNameOf(entry: unknown): string | undefined {
 	if (!isRecord(entry)) return undefined;
 	const message = entry.message;
 	if (!isRecord(message)) return undefined;
-	const details = message.details;
-	if (!isRecord(details)) return undefined;
-	const anchor = details.anchor;
-	if (!isRecord(anchor)) return undefined;
+	const anchor = anchorPayloadOf(message);
+	if (!anchor) return undefined;
 	return typeof anchor.name === "string" ? anchor.name : undefined;
 }
 

@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { getEditorInjectionFor, anchorNameOf } from "../src/auto-context/context/anchors";
+import { getEditorInjectionFor, anchorNameOf, anchorPayloadOf, isAnchorToolResult } from "../src/auto-context/context/anchors";
 
 // ── getEditorInjectionFor ────────────────────────────────────
 
@@ -193,5 +193,59 @@ describe("anchorNameOf", () => {
 	test("returns undefined for primitive input", () => {
 		expect(anchorNameOf("string")).toBeUndefined();
 		expect(anchorNameOf(42)).toBeUndefined();
+	});
+});
+
+// ── xdev-wrapped anchors (omp fork) ───────────────────────────
+
+describe("xdev-wrapped anchor detection (omp xd:// dispatch)", () => {
+	const wrappedMessage = {
+		role: "toolResult",
+		toolName: "write",
+		details: {
+			xdev: {
+				tool: "context",
+				mode: "execute",
+				args: { action: "anchor", name: "wrapped", summary: "via xd" },
+				tier: "exec",
+				inner: { anchor: { name: "wrapped", targetId: "t1", summary: "via xd" } },
+			},
+		},
+	};
+	const directMessage = {
+		role: "toolResult",
+		toolName: "context",
+		details: { anchor: { name: "direct", targetId: "t0", summary: "direct" } },
+	};
+	const plainWrite = {
+		role: "toolResult",
+		toolName: "write",
+		details: { resolvedPath: "/tmp/x" },
+	};
+	const otherXdev = {
+		role: "toolResult",
+		toolName: "write",
+		details: { xdev: { tool: "context", args: { action: "view" }, inner: {} } },
+	};
+
+	test("detects xdev-wrapped context anchor", () => {
+		expect(isAnchorToolResult(wrappedMessage)).toBe(true);
+		expect(anchorPayloadOf(wrappedMessage)?.name).toBe("wrapped");
+	});
+
+	test("still detects direct context anchor", () => {
+		expect(isAnchorToolResult(directMessage)).toBe(true);
+		expect(anchorPayloadOf(directMessage)?.name).toBe("direct");
+	});
+
+	test("rejects plain writes and non-anchor xdev dispatches", () => {
+		expect(isAnchorToolResult(plainWrite)).toBe(false);
+		expect(isAnchorToolResult(otherXdev)).toBe(false);
+		expect(anchorPayloadOf(plainWrite)).toBeNull();
+	});
+
+	test("anchorNameOf reads through the xdev wrapper", () => {
+		expect(anchorNameOf({ type: "message", message: wrappedMessage })).toBe("wrapped");
+		expect(anchorNameOf({ type: "message", message: directMessage })).toBe("direct");
 	});
 });
