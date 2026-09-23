@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Require Pi `0.87+`; remove temporary `pi-server` peer now that `pi-coding-agent` loads without it.
+- Update Bun typings and Oxlint; refresh locked dependencies.
+
 ## 0.13.0
 
 _2026-09-04_

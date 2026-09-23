@@ -254,7 +254,7 @@ Logs are written per namespace to `<agent-dir>/logs/<namespace>.log`, honoring P
 - Do **not** install older overlapping Kimi provider forks alongside a dedicated Kimi provider package.
 - Local `pi -e ...` development may behave differently from installed npm packages for skill loading.
 - Codex search requires `codex login` first.
-- Requires Pi 0.84+ (`pi-ai`, `pi-coding-agent`, `pi-tui`).
+- Requires Pi 0.87+ (`pi-ai`, `pi-coding-agent`, `pi-tui`).
 
 ## Changelog
 
