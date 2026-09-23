@@ -219,7 +219,9 @@ export PI_CLAUDE_OAUTH_LOG_FILE=/path/to/adapter.log
 
 # Identity the adapter reports upstream (falls back to CLAUDE_CODE_* if unset).
 export PI_CLAUDE_CODE_ENTRYPOINT=...
-export PI_CLAUDE_CODE_VERSION=...
+export PI_CLAUDE_CODE_VERSION=2.1.280
+# Bump this if Anthropic rejects OAuth requests with
+# 'claude_code_version_too_old' before a toolkit update lands.
 ```
 
 </details>
