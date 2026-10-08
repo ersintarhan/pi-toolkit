@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0
+
+_2026-10-08_
+
+- Require Pi `1.1+` (`pi-ai`, `pi-coding-agent`, `pi-tui` peer range `^1.1.0`);
+  verified against Pi 1.1.0 with no extension API breakage (typecheck, lint,
+  97 tests, and a live `--list-models` extension-load smoke test all pass).
+
 ## 0.14.1
 
 _2026-09-23_
