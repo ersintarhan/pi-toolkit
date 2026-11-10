@@ -284,10 +284,11 @@ export function countMarkersRaw(payload: AnthropicPayload): number {
  * Enforce the 4-marker hard limit using all structurally valid marker locations.
  *
  * Phase 1 (preferred): use listMarkers + structured eviction tiers:
- *   1. message-level markers NOT owned by us (rolling foreign markers)
- *   2. tools markers NOT owned by us
- *   3. system markers NOT owned by us
- *   4. our own markers (last_anchor) — protected as last resort
+ *   1. redundant system markers before the last system marker, NOT owned by us
+ *   2. message-level markers NOT owned by us (rolling foreign markers)
+ *   3. tools markers NOT owned by us
+ *   4. remaining system markers NOT owned by us
+ *   Our own markers (last_anchor) are protected.
  *
  * Phase 2 (fallback): if the structural count is still > max after Phase 1,
  * a nested content marker is not represented by listMarkers(). Delete the
@@ -363,7 +364,12 @@ function bruteForceDropForeignMarker(payload: AnthropicPayload): boolean {
 
 
 function pickEvictionTarget(markers: MarkerRef[]): MarkerRef | null {
-	// tier 1: foreign message markers, oldest first
+	// Native OAuth marks identity and prompt separately; keep the rolling tail over the redundant identity breakpoint.
+	const systemMarkers = markers.filter(m => m.section === "system");
+	const redundantSystem = systemMarkers.slice(0, -1).find(m => !m.owner);
+	if (redundantSystem) return redundantSystem;
+
+	// Foreign message markers, oldest first
 	const foreignMessages = markers.filter(m => m.section === "messages" && !m.owner);
 	if (foreignMessages.length > 0) return foreignMessages[0];
 	// tier 2: foreign tools markers

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.1
+
+_2026-11-10_
+
+- fix(anchor-cache): when native OAuth adds two system cache breakpoints, evict
+  the redundant earlier system breakpoint before a rolling message breakpoint.
+  This keeps the 1h anchor and 5m rolling tail within the four-marker limit,
+  allowing content after the anchor to be cached instead of reprocessed each turn.
+  System prompt text and OAuth identity remain unchanged.
+
 ## 0.15.0
 
 _2026-10-08_

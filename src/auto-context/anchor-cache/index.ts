@@ -18,6 +18,9 @@
  *   + better-cache   : [system, tools, last_user, last_tool_use] = 4 markers
  *   our shift        : [system, tools, LAST_ANCHOR, last_tool_use] (replaces last_user)
  *
+ * Native OAuth marks both identity and prompt; under budget pressure, discard
+ * the redundant identity breakpoint before the rolling tail (keep its text).
+ *
  * Net marker count: unchanged. The anchor adopts Pi's canonical retention
  * setting or the payload's existing marker TTL, and all markers are normalized
  * to avoid invalid mixed-TTL payloads. Payloads without a marker are untouched.

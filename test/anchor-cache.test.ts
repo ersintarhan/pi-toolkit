@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   clampPostAnchorMarkerTTLs,
   countMarkersRaw,
+  enforceMarkerLimit,
+  setMessageMarker,
   normalizeCacheMarkerTTLs,
   resolveAnchorCacheTTL,
   type AnthropicPayload,
@@ -13,6 +15,56 @@ function payload(ttls: Array<"5m" | "1h" | undefined>): AnthropicPayload {
     messages: [],
   };
 }
+
+describe("anchor cache marker budget", () => {
+  test("keeps anchor and rolling markers when native OAuth adds two system markers", () => {
+    const value = payload(["1h", "1h"]);
+    value.system![0].text = "You are Claude Code, Anthropic's official CLI for Claude.";
+    value.tools = [{ name: "read", cache_control: { type: "ephemeral", ttl: "1h" } }];
+    value.messages = [
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "anchor", content: "checkpoint" }] },
+      { role: "user", content: [{ type: "text", text: "latest result", cache_control: { type: "ephemeral", ttl: "1h" } }] },
+    ];
+    setMessageMarker(value, 0, 0, { type: "ephemeral", ttl: "1h" }, "last_anchor");
+    clampPostAnchorMarkerTTLs(value, 0);
+    expect(countMarkersRaw(value)).toBe(5);
+
+    expect(enforceMarkerLimit(value)).toBe(1);
+    expect(countMarkersRaw(value)).toBe(4);
+    expect(value.system![0].text).toBe("You are Claude Code, Anthropic's official CLI for Claude.");
+    expect(value.system![0].cache_control).toBeUndefined();
+    expect(value.system![1].cache_control?.ttl).toBe("1h");
+    expect(value.tools[0].cache_control?.ttl).toBe("1h");
+    expect((value.messages[0].content as any[])[0].cache_control.ttl).toBe("1h");
+    expect((value.messages[1].content as any[])[0].cache_control.ttl).toBe("5m");
+    expect(enforceMarkerLimit(value)).toBe(0);
+  });
+
+  test("does not remove OAuth system markers when they fit the budget", () => {
+    const value = payload(["1h", "1h"]);
+    value.tools = [{ name: "read", cache_control: { type: "ephemeral", ttl: "1h" } }];
+    value.messages = [{ role: "user", content: [{ type: "text", text: "hello", cache_control: { type: "ephemeral", ttl: "1h" } }] }];
+    const baseline = structuredClone(value);
+    expect(enforceMarkerLimit(value)).toBe(0);
+    expect(value).toEqual(baseline);
+  });
+
+  test("keeps the existing message-first eviction when there is no redundant system marker", () => {
+    const value = payload(["1h"]);
+    value.tools = [{ name: "read", cache_control: { type: "ephemeral", ttl: "1h" } }];
+    value.messages = [
+      { role: "user", content: [{ type: "text", text: "old", cache_control: { type: "ephemeral", ttl: "1h" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "anchor", content: "checkpoint" }] },
+      { role: "user", content: [{ type: "text", text: "latest", cache_control: { type: "ephemeral", ttl: "5m" } }] },
+    ];
+    setMessageMarker(value, 1, 0, { type: "ephemeral", ttl: "1h" }, "last_anchor");
+    expect(enforceMarkerLimit(value)).toBe(1);
+    expect(countMarkersRaw(value)).toBe(4);
+    expect((value.messages[0].content as any[])[0].cache_control).toBeUndefined();
+    expect((value.messages[1].content as any[])[0].cache_control.ttl).toBe("1h");
+    expect((value.messages[2].content as any[])[0].cache_control.ttl).toBe("5m");
+  });
+});
 
 describe("anchor cache TTL", () => {
   test("skips payloads without markers and retention=none", () => {
